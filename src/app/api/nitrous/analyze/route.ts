@@ -2,6 +2,7 @@ import { ACCOUNT_FRESH_MS, finiteNumber, freshAt, SNAPSHOT_FRESH_MS } from "@/li
 import type { NitrousAnalyze, NitrousCandle, NitrousScenario } from "@/lib/nitrous/types";
 import { json, requireUser, requireNitrousAddon, unavailable } from "../_shared";
 import { scanDiagnostics } from "@/lib/nitrous/dashboard";
+import { publicNitrousScenario } from "@/lib/nitrous/scenarios";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +41,8 @@ export async function GET() {
     if (!bars.length || now - bars[bars.length - 1].t - 300_000 > 420_000) health.reasons.push("The completed chart candles need to refresh.");
     const stale = !Number.isFinite(ageMs) || ageMs < -5_000 || ageMs > SNAPSHOT_FRESH_MS || health.state !== "ok" || health.reasons.length > 0;
     if (stale) health.state = "blocked";
-    const scenarios = (Array.isArray(payload.scenarios) ? payload.scenarios : []) as NitrousScenario[];
-    const safeScenarios = scenarios.filter((s) => s && (s.side === "buy" || s.side === "sell") && [s.refEntry,s.stop,s.target,s.entryBandLow,s.entryBandHigh,s.expiresAt].every((n) => typeof n === "number" && Number.isFinite(n)))
-      .map((s) => ({ ...s, profile: (typeof s.configVersion === "string" && s.configVersion.endsWith("+fast.2") ? "nitrous" : "both") as "nitrous" | "both", state: s.expiresAt <= now ? "expired" : stale ? "stale" : s.state,
-        conditionsMet: Array.isArray(s.conditionsMet) ? s.conditionsMet : [], conditionsPending: Array.isArray(s.conditionsPending) ? s.conditionsPending : [] }));
+    const safeScenarios = (Array.isArray(payload.scenarios) ? payload.scenarios : [])
+      .map((s) => publicNitrousScenario(s, now, stale)).filter((s): s is NitrousScenario => s !== null);
     const regimes = (row.regimes ?? {}) as Record<string, string>;
     const labels: Record<string,string> = { D1: "D", H4: "4H", H1: "1H", M30: "30M", M15: "15M", M5: "5M" };
     const flow: NitrousAnalyze["flow"] = Object.entries(labels).map(([key,timeframe]) => {

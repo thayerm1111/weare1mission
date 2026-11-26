@@ -29,6 +29,8 @@ export type EngineContext = {
   /** ATR(14) by timeframe. */
   atr: Partial<Record<Timeframe, number>>;
   zones: Zone[];
+  /** Optional complete zone identities, including ineligible parents; never used to loosen eligibility. */
+  zoneHistory?: readonly Zone[];
   range: ValidatedRange | null;
   /** Executable mid used for planning. The real fill uses bid/ask at trigger. */
   refPrice: number;
@@ -272,13 +274,22 @@ export function findBreak(
 ): Setup["breakEvidence"] | null {
   const barMs = TF_MS[tf];
   const horizon = cfg.entry.retestExpiryBars + 1;
-  const recent = bars.slice(-horizon);
-  for (let i = recent.length - 1; i >= 0; i--) {
-    const b = recent[i];
+  const start = Math.max(0, bars.length - horizon);
+  for (let i = bars.length - 1; i >= start; i--) {
+    const b = bars[i];
     const closeTime = b.t + barMs;
     if (closeTime > asOf) continue;
     const beyond = side === "buy" ? b.c - (zone.high + breakBuffer) : (zone.low - breakBuffer) - b.c;
     if (!(beyond > 0)) continue;
+    // Nitrous already requires a fresh crossing at trigger time. Choose that evidence here so a
+    // later strong continuation cannot hide the original break or restart its retest expiry.
+    // Read the predecessor from the full series, even when it lies just outside the search window.
+    if (cfg.entry.requireFreshBreakCross) {
+      const previous = bars[i - 1];
+      if (!previous) continue;
+      const crossed = side === "buy" ? previous.c <= zone.high + breakBuffer : previous.c >= zone.low - breakBuffer;
+      if (!crossed) continue;
+    }
     const br = bodyRatio(b);
     if (br < cfg.entry.minBodyRatio) continue;
     const pos = closePosition(b);
@@ -315,7 +326,10 @@ function breakRetest(ctx: EngineContext, tf: Timeframe, bars: Bar[], atrEntry: n
       }
 
       // An opposite qualifying break since the arm cancels it.
-      const opposite = findBreak(bars.filter((b) => b.t + barMs > ev.closedAt), zone, side === "buy" ? "sell" : "buy", tol.breakBuffer, tf, cfg, ctx.asOf);
+      // Keep the original break as predecessor context: an opposite break on the very next candle
+      // still cancels the arm when fresh-cross selection is enabled. The original cannot qualify
+      // in the opposite direction, so Rapid's default evidence selection is unchanged.
+      const opposite = findBreak(bars.filter((b) => b.t + barMs >= ev.closedAt), zone, side === "buy" ? "sell" : "buy", tol.breakBuffer, tf, cfg, ctx.asOf);
       if (opposite) {
         reject(rej, `retest:${tf}`, "opposite_break", `an opposite qualifying break closed at ${opposite.closePrice}`, ctx.asOf, "break_retest", zone.id);
         continue;

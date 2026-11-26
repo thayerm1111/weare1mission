@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { Bar, Setup } from "../rapid/core/types";
 import { advancePublicSetups, publicSetupTerminal, type PublicSetupsInput } from "../nitrous/public-events";
 import { validNitrousTelegramEvent } from "../src/lib/nitrous-telegram";
-import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, configFor } from "../nitrous/config";
+import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG, configFor } from "../nitrous/config";
 import { fastCandidateEligible, setupAllowedForAccount, mergeNitrousSetups, triggerConfirmed } from "../nitrous/logic";
 import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION } from "../src/lib/nitrous/policy";
 
@@ -190,4 +190,46 @@ test("range reaction requires a completed rejection candle", () => {
   assert.equal(triggerConfirmed(s,bars,NOW),true);
   assert.equal(triggerConfirmed({...s,configVersion:NITROUS_CONFIG.configVersion},bars,NOW),false);
   assert.equal(triggerConfirmed(s,[{...bars[0],t:NOW}],NOW),false);
+});
+
+const sweepPlan = (over: Partial<Setup> = {}): Setup => plan({ family: "sweep_reclaim", configVersion: NITROUS_SWEEP_CONFIG.configVersion,
+  expiresAt: NOW + 4*MINUTE, sweepEvidence: {
+    pivotId: "confirmed-low", pivotKind: "low", pivotPrice: 4200, pivotTime: NOW-20*MINUTE, pivotKnownAt: NOW-10*MINUTE,
+    candleOpenedAt: NOW-6*MINUTE, candleClosedAt: NOW-MINUTE, candleOpen: 4198.5, candleHigh: 4200.7, candleLow: 4197, candleClose: 4200.5,
+    sweepExtreme: 4197, confirmationThreshold: 4200,
+  }, ...over });
+
+test("sweep lifecycle freezes and copies exact public reclaim evidence across reads and reloads", () => {
+  const original = sweepPlan();
+  const withPrivateField = { ...original, sweepEvidence: { ...original.sweepEvidence!, brokerAccountId: "private-sweep-account" } };
+  const first = advancePublicSetups(input({ current: [withPrivateField] }));
+  assert.equal(first.updatedSetups.length, 1);
+  assert.deepEqual(first.updatedSetups[0].sweepEvidence, original.sweepEvidence);
+  assert.notEqual(first.updatedSetups[0].sweepEvidence, original.sweepEvidence);
+  assert.doesNotMatch(JSON.stringify(first), /private-sweep-account|brokerAccountId/);
+  assert.equal(first.events[0].profile, "nitrous");
+  assert.ok(first.events.every(validNitrousTelegramEvent));
+  const changed = sweepPlan({ sweepEvidence: { ...original.sweepEvidence!, candleClose: 4200.6 } });
+  let observedClose = 0;
+  const next = advancePublicSetups(input({ prior: JSON.parse(JSON.stringify(first.updatedSetups)), current: [changed], referencePrice: 4200.5,
+    triggerReady: frozen => { observedClose = frozen.sweepEvidence!.candleClose; frozen.sweepEvidence!.candleClose = 9999; return true; } }));
+  assert.equal(observedClose, 4200.5);
+  assert.equal(next.updatedSetups[0].state, "triggered");
+  assert.deepEqual(next.updatedSetups[0].sweepEvidence, original.sweepEvidence);
+  assert.equal(next.events[0].family, "sweep_reclaim");
+  assert.equal(original.sweepEvidence!.candleClose, 4200.5);
+});
+
+test("sweep lifecycle rejects missing, future or unreclaimed public evidence", () => {
+  const original = sweepPlan();
+  for (const invalid of [
+    sweepPlan({ sweepEvidence: null }),
+    sweepPlan({ sweepEvidence: { ...original.sweepEvidence!, candleClosedAt: NOW+MINUTE } }),
+    sweepPlan({ sweepEvidence: { ...original.sweepEvidence!, pivotKnownAt: NOW-5*MINUTE } }),
+    sweepPlan({ sweepEvidence: { ...original.sweepEvidence!, candleClose: 4199 } }),
+  ]) {
+    const result = advancePublicSetups(input({ current: [invalid], referencePrice: 4200.5, triggerReady: () => true }));
+    assert.equal(result.updatedSetups.length, 0);
+    assert.equal(result.events.length, 0);
+  }
 });

@@ -38,7 +38,7 @@ const formatPrice = (v: number) => v.toLocaleString("en-US", { minimumFractionDi
 const timeframes: Record<string, string> = { D1: "D", H4: "4H", H1: "1H", M30: "30M", M15: "15M", M5: "5M" };
 const timeframe = (v: string) => timeframes[v.toUpperCase()] ?? v.toUpperCase();
 const timeframeWords = (v: string) => ({ D: "daily", "4H": "4-hour", "1H": "1-hour", "30M": "30-minute", "15M": "15-minute", "5M": "5-minute" } as Record<string, string>)[timeframe(v)] ?? "";
-const family = (v: string) => ({ trend_pullback: "pullback", break_retest: "break & retest", range_reaction: "range reaction" } as Record<string, string>)[v] ?? "setup";
+const family = (v: string) => ({ trend_pullback: "pullback", break_retest: "break & retest", range_reaction: "range reaction", sweep_reclaim: "sweep & reclaim" } as Record<string, string>)[v] ?? "setup";
 const distanceTo = (low: number, high: number, price: number) => Math.max(low - price, price - high, 0);
 const direction = (data: NitrousAnalyze | null, tf: string): Direction => {
   const value = data?.flow.find(v => typeof v?.timeframe === "string" && timeframe(v.timeframe) === tf)?.direction;
@@ -60,8 +60,16 @@ function currentRead(data: NitrousAnalyze | null, now: number, fresh: boolean): 
 /** A display filter only. It never creates, rearms, or submits an engine setup. */
 function coherentPlan(s: NitrousScenario, reference: number | null, now: number, fresh: boolean): boolean {
   if (!s || !displayableSetup(s, reference, now, fresh) || !s.setupId
-    || !["trend_pullback", "break_retest", "range_reaction"].includes(s.family)
+    || !["trend_pullback", "break_retest", "range_reaction", "sweep_reclaim"].includes(s.family)
     || s.refEntry < s.entryBandLow || s.refEntry > s.entryBandHigh) return false;
+  if (s.family === "sweep_reclaim") {
+    const e = s.sweepEvidence;
+    if (!e || ![e.pivotPrice,e.pivotTime,e.pivotKnownAt,e.candleOpenedAt,e.candleClosedAt,e.candleClose,e.sweepExtreme,e.confirmationThreshold].every(positive)
+      || e.pivotTime > e.pivotKnownAt || e.pivotKnownAt > e.candleOpenedAt || e.candleOpenedAt >= e.candleClosedAt || e.candleClosedAt > now
+      || e.confirmationThreshold !== e.pivotPrice || e.candleClose < s.entryBandLow || e.candleClose > s.entryBandHigh) return false;
+    if (s.side === "buy" ? e.pivotKind !== "low" || e.sweepExtreme >= e.pivotPrice || e.candleClose <= e.pivotPrice
+      : e.pivotKind !== "high" || e.sweepExtreme <= e.pivotPrice || e.candleClose >= e.pivotPrice) return false;
+  }
   return s.side === "buy"
     ? s.stop < s.entryBandLow && s.target > s.entryBandHigh && s.stop <= s.invalidation && s.invalidation < s.target
     : s.stop > s.entryBandHigh && s.target < s.entryBandLow && s.stop >= s.invalidation && s.invalidation > s.target;
@@ -72,7 +80,7 @@ export function rankedSetups(scenarios: NitrousScenario[], reference: number | n
   fresh: boolean, mode: NitrousMode): NitrousScenario[] {
   if (!positive(reference) || !finite(now)) return [];
   const priority: Record<string, number> = { triggered: 0, armed: 1, approaching: 2, watching: 3 };
-  return scenarios.filter(s => s && (mode === "nitrous" || s.profile !== "nitrous") && coherentPlan(s, reference, now, fresh))
+  return scenarios.filter(s => s && (mode === "nitrous" || (s.profile !== "nitrous" && s.family !== "sweep_reclaim")) && coherentPlan(s, reference, now, fresh))
     .sort((a, b) => distanceTo(a.entryBandLow, a.entryBandHigh, reference) - distanceTo(b.entryBandLow, b.entryBandHigh, reference)
       || priority[a.state] - priority[b.state] || a.expiresAt - b.expiresAt || a.setupId.localeCompare(b.setupId));
 }
@@ -113,22 +121,26 @@ function emptyOpportunity(kind: MarketOpportunity["kind"], title: string, status
 }
 function planOpportunity(plan: NitrousScenario, reference: number): MarketOpportunity {
   const triggered = plan.state === "triggered", confirmed = triggered || plan.state === "armed";
+  const sweep = plan.family === "sweep_reclaim" ? plan.sweepEvidence : null;
   const tf = timeframe(plan.timeframe).toLowerCase();
   // These requirements come from nitrous/logic.ts, not assumptions from the chart's candle shape.
   const pending = Array.isArray(plan.conditionsPending) ? plan.conditionsPending.filter((v): v is string => typeof v === "string" && v.trim().length > 0) : [];
   const firstPending = pending.find(v => !/broker|margin|affordable|risk must qualify/i.test(v)) ?? pending[0];
-  const trigger = triggered ? "The reference trigger and entry-zone visit were observed. Broker execution still needs its own confirmation."
+  const trigger = sweep ? `${triggered ? "The reference reclaim and entry-band conditions were observed. Broker execution still needs its own confirmation."
+    : `The completed reclaim is recorded. Broker price must be inside the entry band near ${formatPrice(sweep.candleClose)} and pass size, spread, margin and risk checks.`} No additional retest is required.`
+    : triggered ? "The reference trigger and entry-zone visit were observed. Broker execution still needs its own confirmation."
     : confirmed ? "The reference trigger is confirmed. Broker price must enter the band and pass size, spread, margin and risk checks."
       : firstPending ? `${firstPending.replace(/[.!?]+$/, "")}.`
         : plan.family === "break_retest" ? "A completed break and return to the entry band must be confirmed, followed by broker risk checks."
           : `A completed ${tf} candle must reject the zone, followed by broker price and risk checks.`;
   const chartName = timeframeWords(plan.timeframe);
-  const detail = plan.family === "break_retest" ? `The ${chartName || "entry"} chart has recorded a break ${plan.side === "buy" ? "above" : "below"} the zone. This ${plan.side} plan watches the retest.`
+  const detail = sweep ? `The ${chartName || "entry"} candle swept ${plan.side === "buy" ? "below" : "above"} the known swing ${sweep.pivotKind} at ${formatPrice(sweep.pivotPrice)} to ${formatPrice(sweep.sweepExtreme)}, then closed back ${plan.side === "buy" ? "above" : "below"} it at ${formatPrice(sweep.candleClose)} (${new Date(sweep.candleClosedAt).toISOString().slice(11,16)} UTC).`
+    : plan.family === "break_retest" ? `The ${chartName || "entry"} chart has recorded a break ${plan.side === "buy" ? "above" : "below"} the zone. This ${plan.side} plan watches the retest.`
     : plan.family === "range_reaction" ? `This ${plan.side} setup watches the ${plan.side === "buy" ? "lower" : "upper"} boundary of an established ${chartName ? `${chartName} ` : ""}range.`
       : `This ${plan.side} plan follows a ${chartName ? `${chartName} ` : ""}pullback into ${plan.side === "buy" ? "support" : "resistance"}. The entry area is shown above.`;
   return {
-    kind: "setup", title: triggered ? `${plan.side === "buy" ? "Buy" : "Sell"} trigger observed` : `${plan.side === "buy" ? "Buy" : "Sell"} ${family(plan.family)}`,
-    status: triggered ? "Reference trigger · not a broker fill" : confirmed ? "Confirmation observed · waiting for entry" : "Conditional setup · waiting for confirmation",
+    kind: "setup", title: triggered ? `${plan.side === "buy" ? "Buy" : "Sell"}${sweep ? " sweep & reclaim ·" : ""} trigger observed` : `${plan.side === "buy" ? "Buy" : "Sell"} ${family(plan.family)}`,
+    status: triggered ? "Reference trigger · not a broker fill" : sweep ? "Closed reclaim observed · entry checks pending" : confirmed ? "Confirmation observed · waiting for entry" : "Conditional setup · waiting for confirmation",
     detail, range: { low: plan.entryBandLow, high: plan.entryBandHigh },
     distance: distanceTo(plan.entryBandLow, plan.entryBandHigh, reference), distanceText: distanceText(plan.entryBandLow, plan.entryBandHigh, reference),
     trigger, invalidationText: `This idea is invalid if reference price reaches ${formatPrice(plan.invalidation)} or ${plan.side === "buy" ? "lower" : "higher"}.`,
@@ -218,7 +230,10 @@ export function marketUpdate(previous: NitrousAnalyze | null, current: NitrousAn
   for (const plan of plans) {
     const before = previous.scenarios.find(s => s.setupId === plan.setupId)!;
     if (before.state !== plan.state && (plan.state === "armed" || plan.state === "triggered"))
-      return plan.state === "triggered" ? "A reference trigger and entry-zone visit were observed. Broker fill is not confirmed."
+      return plan.family === "sweep_reclaim" ? plan.state === "triggered"
+        ? "A completed sweep and reclaim met the reference entry-band conditions. Broker fill is not confirmed."
+        : "A completed sweep and reclaim is confirmed. Broker entry checks still apply; no additional retest is required."
+        : plan.state === "triggered" ? "A reference trigger and entry-zone visit were observed. Broker fill is not confirmed."
         : "A closed reference trigger is confirmed; price still needs to reach the entry band.";
     if (positive(previous.price) && distanceTo(plan.entryBandLow, plan.entryBandHigh, previous.price) > 0
       && distanceTo(plan.entryBandLow, plan.entryBandHigh, current.price!) === 0)

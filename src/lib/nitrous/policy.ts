@@ -1,7 +1,38 @@
-import type { NitrousMode, NitrousStats } from "./types";
+import type { NitrousMode, NitrousSetupCapability, NitrousStats } from "./types";
 
 export const NITROUS_CONSENT_VERSION = "nitrous-consent-v1";
 export const NITROUS_FAST_CONSENT_VERSION = "nitrous-consent-v2-fast";
+export const NITROUS_SWEEP_CONSENT_VERSION = "nitrous-consent-v3-sweep";
+
+/** Exact immutable configurations, shared by account authorization and public classification. */
+export const NITROUS_SETUP_CONFIGS = {
+  baseline: "matty_rapid_v1.cfg.1+nitrous.1",
+  fast: "matty_rapid_v1.cfg.1+nitrous.1+fast.2",
+  sweep: "matty_rapid_v1.cfg.1+nitrous.1+fast.2+sweep.1",
+} as const;
+
+export const hasSweepConsent = (consent: unknown): boolean => consent === NITROUS_SWEEP_CONSENT_VERSION;
+export const hasFastConsent = (consent: unknown): boolean => consent === NITROUS_FAST_CONSENT_VERSION || hasSweepConsent(consent);
+export const hasNitrousConsent = (consent: unknown): boolean => consent === NITROUS_CONSENT_VERSION || hasFastConsent(consent);
+
+/** Unknown configurations and mismatched families never inherit a capability from a name prefix. */
+export function setupCapability(configVersion: unknown, family: unknown): NitrousSetupCapability | null {
+  const baselineFamily = family === "trend_pullback" || family === "break_retest";
+  if (configVersion === NITROUS_SETUP_CONFIGS.baseline && baselineFamily) return "baseline";
+  if (configVersion === NITROUS_SETUP_CONFIGS.fast && (baselineFamily || family === "range_reaction")) return "fast";
+  if (configVersion === NITROUS_SETUP_CONFIGS.sweep && family === "sweep_reclaim") return "sweep";
+  return null;
+}
+
+/** Consent grants a capability; account readiness, risk and each live order still have their own gates. */
+export function setupAuthorized(configVersion: unknown, family: unknown, mode: unknown, consent: unknown): boolean {
+  if (!isNitrousMode(mode) || !hasNitrousConsent(consent)) return false;
+  const capability = setupCapability(configVersion, family);
+  if (capability === "baseline") return true;
+  if (mode !== "nitrous") return false;
+  if (capability === "fast") return hasFastConsent(consent);
+  return capability === "sweep" && hasSweepConsent(consent);
+}
 export const WORKER_FRESH_MS = 60_000;
 export const ACCOUNT_FRESH_MS = 120_000;
 export const SNAPSHOT_FRESH_MS = 45_000;
@@ -133,7 +164,7 @@ export function validateSettingsChange(account: Record<string, unknown>, body: R
   if (account.automation_enabled === true && (changedMode || changedRisk)) return { ok: false, error: "Pause auto trading before changing mode or risk.", status: 409 };
   const arming = body.automationEnabled === true;
   if (arming && !activeMember) return { ok: false, error: "Active One Mission access is required to start auto trading.", status: 403 };
-  const consentValid = body.consentVersion === NITROUS_CONSENT_VERSION || (mode === "nitrous" && body.consentVersion === NITROUS_FAST_CONSENT_VERSION);
+  const consentValid = body.consentVersion === NITROUS_CONSENT_VERSION || (mode === "nitrous" && hasFastConsent(body.consentVersion));
   if (arming && (body.acknowledgedRisk !== true || !consentValid || body.mode !== mode || body.riskPct !== checkedRisk)) {
     return { ok: false, error: "Review and confirm the selected account, mode and risk before starting.", status: 400 };
   }

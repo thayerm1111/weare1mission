@@ -6,12 +6,13 @@ import { ProductIcon } from "../ProductIcon";
 import { useExperienceMode } from "../experience";
 import { NitrousMarketDesk, NitrousLiveTrades } from "./NitrousMarketDesk";
 import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition } from "@/lib/nitrous/types";
-import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_PROFILES } from "@/lib/nitrous/policy";
+import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION, NITROUS_PROFILES, NITROUS_SWEEP_CONSENT_VERSION } from "@/lib/nitrous/policy";
 import { useNitrousStatus } from "./useNitrousStatus";
 import { accountIsActive, elapsed, modeName, money, price, shownPnl, shownPnlLabel, validAnalyze } from "./presentation";
 import { NitrousConnect } from "./NitrousConnect";
 import { NitrousAddonPanel } from "./NitrousAddonPanel";
 import { NitrousTelegramPanel } from "./NitrousTelegramPanel";
+import { accountStrategyConsent, accountStrategyName, NitrousStrategyOptions } from "./NitrousStrategyOptions";
 import "./nitrous.css";
 
 function ArmDialog({ account, mode, riskPct, consentVersion, busy, error, onCancel, onConfirm }: {
@@ -19,18 +20,19 @@ function ArmDialog({ account, mode, riskPct, consentVersion, busy, error, onCanc
   onCancel: () => void; onConfirm: (version: string) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null); const [accepted, setAccepted] = useState(false);
+  const [selectedConsent, setSelectedConsent] = useState(consentVersion);
   useEffect(() => { dialog.current?.showModal(); }, []);
   const risk = account.equity == null ? null : account.equity * riskPct / 100;
   return <dialog ref={dialog} className="nitrous-dialog" aria-labelledby="nitrous-arm-title" onCancel={e => { e.preventDefault(); if (!busy) onCancel(); }}>
     <div className="nitrous-dialog-head"><span className="nitrous-icon-disc"><Zap size={21} /></span><button type="button" className="nitrous-icon-button" onClick={onCancel} disabled={busy} aria-label="Cancel auto trading"><X size={20} /></button></div>
-    <h2 id="nitrous-arm-title">Turn on {modeName(mode)}?</h2>
+    <h2 id="nitrous-arm-title">{account.automationEnabled ? "Review entry strategies" : `Turn on ${modeName(mode)}?`}</h2>
     <p className="nitrous-muted">Qualifying gold setups will be submitted automatically to this {account.environment === "live" ? "real" : "demo"} TradeLocker account.</p>
     <dl className="nitrous-confirm-facts"><div><dt>Account</dt><dd>{account.name || "TradeLocker"} {account.masked}</dd></div><div><dt>Risk per trade</dt><dd>{riskPct}% · approximately {money(risk, account.currency ?? "USD")}</dd></div><div><dt>Daily loss allowance</dt><dd>{NITROUS_PROFILES.find(p => p.mode === mode)?.dailyLossPct}% of starting-day equity</dd></div></dl>
-    {mode === "nitrous" && consentVersion === NITROUS_FAST_CONSENT_VERSION && <p className="nitrous-muted">Faster Nitrous can qualify more setups during 15-minute consolidation, including validated range reactions. These rules are unproven and may trade more often. The selected risk and daily loss allowance do not increase.</p>}
+    {mode === "nitrous" && <NitrousStrategyOptions value={selectedConsent} disabled={busy} onChange={version => { setSelectedConsent(version); setAccepted(false); }} />}
     <p className="nitrous-risk-note">{mode === "nitrous" ? "Nitrous uses high risk and can lose the full trading allocation. " : "Trading can lose money. "}Stops can fill beyond the intended price. Daily limits pause new entries; they do not guarantee a maximum loss.</p>
-    <label className="nitrous-check"><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} disabled={busy} /><span>I authorize automatic trades on this account at the selected risk.</span></label>
+    <label className="nitrous-check"><input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} disabled={busy} /><span>I authorize automatic trades on this account using the selected entry strategies and risk.</span></label>
     {error && <p role="alert" className="nitrous-error">{error}</p>}
-    <button type="button" className="nitrous-button nitrous-button-primary" disabled={!accepted || busy} onClick={() => onConfirm(consentVersion)}>{busy ? <Loader2 className="nitrous-spin" size={17} /> : <Play size={17} />}{busy ? "Checking readiness…" : `Turn on ${modeName(mode)}`}</button>
+    <button type="button" className="nitrous-button nitrous-button-primary" disabled={!accepted || busy} onClick={() => onConfirm(selectedConsent)}>{busy ? <Loader2 className="nitrous-spin" size={17} /> : <Play size={17} />}{busy ? "Checking readiness…" : account.automationEnabled ? "Authorize selected strategies" : `Turn on ${modeName(mode)}`}</button>
   </dialog>;
 }
 
@@ -59,6 +61,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const [accountId, setAccountId] = useState(""); const [mode, setMode] = useState<NitrousMode>("slow_drip");
   const [riskPct, setRiskPct] = useState(0.5); const [busy, setBusy] = useState(""); const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState(""); const [connecting, setConnecting] = useState(false); const [arming, setArming] = useState(false);
+  const [armConsent, setArmConsent] = useState(NITROUS_CONSENT_VERSION);
   const [closing, setClosing] = useState<NitrousPosition | null>(null);
   const entitled = status.data?.addon?.entitled === true && !status.error;
   const accounts = status.data?.accounts ?? [];
@@ -148,6 +151,10 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const canArm = entitled && !!account && !status.error && !!status.data?.available && status.data.worker.healthy
     && status.data.control.mode === "live" && !status.data.control.entriesPaused && account.blockers.length === 0
     && status.now > 0 && status.now - status.receivedAt <= 45_000;
+  const reviewStrategies = (version?: string) => {
+    if (!account || !canArm || busy) return;
+    setArmConsent(version ?? accountStrategyConsent(account, mode)); setActionError(""); setArming(true);
+  };
   return <div className="nitrous" data-mode={mode}>
     <header className="nitrous-header"><div className="nitrous-brand"><ProductIcon kind="nitrous" size="lg" /><div><p className="nitrous-eyebrow">ONE MISSION · GOLD AUTOMATION</p><h1>Nitrous</h1><p>Read the setup. Choose your pace.</p></div></div>
       <span className="nitrous-powered"><span />Powered by TradeLocker</span></header>
@@ -174,9 +181,11 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
               <p><strong>{money(plannedRisk, currency)}</strong> planned budget per trade</p><small>{account.automationEnabled ? "Pause auto trading to change mode or risk." : "Actual size rounds down to your broker’s lot step. Setups that cannot fit your budget are skipped."}</small></div>
             {entitled && !isSimple && <div className="nitrous-management"><label><input type="checkbox" checked={account.managementEnabled} disabled={account.automationEnabled || !!busy} onChange={event => void settings({ managementEnabled: event.target.checked }, "management")} /><span>Automatic trade management<small>Applies to new trades. Existing trades keep their saved management plan.</small></span></label></div>}
             {entitled && changed && !account.automationEnabled && <button className="nitrous-button nitrous-button-secondary" type="button" onClick={() => void settings({ mode, riskPct }, "save")} disabled={!!busy}>{busy === "save" ? <Loader2 className="nitrous-spin" size={17} /> : <Check size={17} />}Save {modeName(mode)} profile</button>}
-            {entitled && account.automationEnabled && account.mode === "nitrous" && !account.fastStrategyEnabled && <><p className="nitrous-health-note">Your account is using the original setup rules. Review the faster strategy to enable its additional setups.</p><button type="button" className="nitrous-button nitrous-button-primary" disabled={!canArm || !!busy} onClick={() => { setActionError(""); setArming(true); }}><Zap size={17} />Enable faster Nitrous</button></>}
+            <p className="nitrous-health-note"><strong>Account entry rules:</strong> {accountStrategyName(account)}.{account.automationEnabled ? " Qualifying entries still require broker and risk checks." : " Auto trading is paused."}</p>
+            {entitled && account.automationEnabled && account.mode === "nitrous" && !account.fastStrategyEnabled && <button type="button" className="nitrous-button nitrous-button-primary" disabled={!canArm || !!busy} onClick={() => reviewStrategies(NITROUS_FAST_CONSENT_VERSION)}><Zap size={17} />Enable faster Nitrous</button>}
+            {entitled && mode === "nitrous" && !account.sweepStrategyEnabled && <><p className="nitrous-health-note">Sweep &amp; reclaim is available as an additional strategy. It can enter near a completed reclaim close without waiting for another retest. Review and authorize it for this account to enable it.</p><button type="button" className="nitrous-button nitrous-button-secondary" disabled={!canArm || !!busy} onClick={() => reviewStrategies(NITROUS_SWEEP_CONSENT_VERSION)}><Zap size={17} />Review sweep &amp; reclaim</button></>}
             {account.automationEnabled ? <button type="button" className="nitrous-button nitrous-button-secondary" disabled={!!busy} onClick={() => void settings({ automationEnabled: false }, "pause")}>{busy === "pause" ? <Loader2 className="nitrous-spin" size={17} /> : <Pause size={17} />}Pause auto trading</button>
-              : <button type="button" className="nitrous-button nitrous-button-primary" disabled={!canArm || !!busy} onClick={() => { setActionError(""); setArming(true); }}><Play size={17} />Turn on auto trading</button>}
+              : <button type="button" className="nitrous-button nitrous-button-primary" disabled={!canArm || !!busy} onClick={() => reviewStrategies()}><Play size={17} />Turn on auto trading</button>}
             {account.blockers.length > 0 && <div className="nitrous-blockers"><strong>Before new entries can start</strong><ul>{account.blockers.map((blocker, i) => <li key={i}>{blocker}</li>)}</ul></div>}
             {!status.data?.worker.healthy && !account.blockers.some(b => /execution service|worker/i.test(b)) && <p className="nitrous-health-note">Waiting for the execution service to report ready.</p>}
             <div className="nitrous-account-footer"><button type="button" onClick={() => void refreshAccount()} disabled={!!busy}>{busy === "refresh" ? <Loader2 size={14} className="nitrous-spin" /> : <RefreshCw size={14} />}Refresh account</button>{entitled && <button type="button" onClick={() => setConnecting(true)} disabled={!!busy}>Add account</button>}</div>
@@ -190,7 +199,7 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
       </aside></div>
     <footer className="nitrous-footer"><span>Visible setups are conditional until their triggers qualify. Trading can lose money.</span>{!isSimple && analysis?.strategyVersion && <span>{analysis.strategyVersion}</span>}</footer>
     {connecting && entitled && <NitrousConnect onClose={() => setConnecting(false)} onConnected={id => { setConnecting(false); if (id) setAccountId(id); void status.refresh(); setNotice("Account connected. Choose your mode and turn on auto trading when ready."); }} />}
-    {arming && entitled && account && <ArmDialog account={account} mode={mode} riskPct={riskPct} consentVersion={mode === "nitrous" ? NITROUS_FAST_CONSENT_VERSION : (status.data?.consentVersion ?? NITROUS_CONSENT_VERSION)} busy={busy === "arm"} error={actionError} onCancel={() => { setArming(false); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
+    {arming && entitled && account && <ArmDialog account={account} mode={mode} riskPct={riskPct} consentVersion={armConsent} busy={busy === "arm"} error={actionError} onCancel={() => { setArming(false); setActionError(""); }} onConfirm={version => void settings({ mode, riskPct, automationEnabled: true, acknowledgedRisk: true, consentVersion: version }, "arm")} />}
     {closing && account && <CloseDialog position={closing} account={account} busy={busy === "close"} error={actionError} onCancel={() => { setClosing(null); setActionError(""); }} onConfirm={() => void closePosition()} />}
   </div>;
 }

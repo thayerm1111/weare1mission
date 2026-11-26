@@ -29,8 +29,10 @@ function safeCounts(input: unknown, fallback: unknown): NitrousScanCheck[] {
 export function scanDiagnostics(payload: Record<string,unknown>, reference:number|null, at:number): NitrousDiagnostics {
   return {watchLevels:selectWatchLevels(payload.watchLevels??payload.levels,reference,at),
     baselineChecks:safeCounts(payload.baselineChecks,payload.rejections),fastChecks:safeCounts(payload.fastChecks,payload.fastRejections),
+    sweepChecks:safeCounts(payload.sweepChecks,payload.sweepRejections),
     baselineCandidates:finite(payload.baselineCandidates)&&payload.baselineCandidates>=0?payload.baselineCandidates:null,
-    fastCandidates:finite(payload.fastCandidates)&&payload.fastCandidates>=0?payload.fastCandidates:null};
+    fastCandidates:finite(payload.fastCandidates)&&payload.fastCandidates>=0?payload.fastCandidates:null,
+    sweepCandidates:finite(payload.sweepCandidates)&&payload.sweepCandidates>=0?payload.sweepCandidates:null};
 }
 export function isObservedTrade(p: NitrousPosition, now: number): boolean {
   const at=Date.parse(p.liveObservedAt??"");

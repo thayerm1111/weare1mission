@@ -9,7 +9,7 @@ import type { Regime, Setup, Side, Timeframe } from "../core/types";
  * put an order on the account.
  *
  * Ranking, in order:
- *   1. A confirmed break/retest or trend pullback beats a range fade pointing the other way.
+ *   1. A confirmed break/retest, trend pullback or opted-in sweep/reclaim beats a range fade.
  *   2. Structure quality: the higher source timeframe wins.
  *   3. Daily alignment, as a tie-break only — the daily bias ranks candidates, it never creates or
  *      vetoes one.
@@ -20,6 +20,7 @@ import type { Regime, Setup, Side, Timeframe } from "../core/types";
 const FAMILY_RANK: Record<Setup["family"], number> = {
   break_retest: 3,
   trend_pullback: 3,
+  sweep_reclaim: 3,
   momentum: 2,
   range_reaction: 1,
 };

@@ -132,7 +132,7 @@ export type ValidatedRange = {
   brokenBy: Side | null;
 };
 
-export type SetupFamily = "range_reaction" | "break_retest" | "trend_pullback" | "momentum";
+export type SetupFamily = "range_reaction" | "break_retest" | "trend_pullback" | "momentum" | "sweep_reclaim";
 
 export type VisitState =
   | "watching"
@@ -194,6 +194,8 @@ export type Setup = {
   conditionsPending: string[];
   /** For break_retest: the completed break that armed it. */
   breakEvidence: BreakEvidence | null;
+  /** For Nitrous sweep_reclaim: confirmed structure and the completed reclaim candle. */
+  sweepEvidence?: SweepEvidence | null;
 };
 
 export type BreakEvidence = {
@@ -203,6 +205,25 @@ export type BreakEvidence = {
   bodyRatio: number;
   closePositionInRange: number;
   beyondBy: number;
+};
+
+export type SweepEvidence = {
+  pivotId: string;
+  pivotKind: PivotKind;
+  pivotPrice: number;
+  /** Open time of the confirmed pivot's own candle. */
+  pivotTime: number;
+  /** Must be no later than the sweep candle's open; the swept level cannot be inferred afterward. */
+  pivotKnownAt: number;
+  candleOpenedAt: number;
+  candleClosedAt: number;
+  candleOpen: number;
+  candleHigh: number;
+  candleLow: number;
+  candleClose: number;
+  sweepExtreme: number;
+  /** The already-known pivot price reclaimed by the completed close. */
+  confirmationThreshold: number;
 };
 
 export type Transition = {
@@ -219,7 +240,8 @@ export type RejectionCode =
   | "outside_band" | "no_anchor" | "stop_too_wide" | "target_room_short" | "reward_risk_short"
   | "spread_too_wide" | "cost_too_high" | "stale_quote" | "session_closed" | "warmup"
   | "regime_conflict" | "already_consumed" | "opposite_break" | "expired" | "arbitration_lost"
-  | "news_window" | "basis_unstable" | "no_opposing_room";
+  | "news_window" | "basis_unstable" | "no_opposing_room"
+  | "no_sweep" | "no_reclaim" | "forming_candle";
 
 export type Rejection = {
   at: number;

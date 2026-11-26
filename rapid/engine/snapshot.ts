@@ -1,4 +1,4 @@
-import type { Bar, Health, MarketSnapshot, Pivot, Quote, Regime, Setup, Timeframe, ValidatedRange, Zone } from "../core/types";
+import type { Bar, Health, MarketSnapshot, Pivot, Quote, Regime, RejectionCode, Setup, Timeframe, ValidatedRange, Zone } from "../core/types";
 import { mid, spreadOf } from "../core/types";
 import { TF_MS, atr } from "../market/bars";
 import { GOLD_SESSION, type SessionConfig, sessionState, splitSessionDays, tradingDay, tradingWeek } from "../market/session";
@@ -7,7 +7,7 @@ import { classifyRegime } from "./structure";
 import { collectReactions, eligibleZones, expireStaleZones, makeZone, mergeZones, seedFromLine, seedFromPivot } from "./zones";
 import { validateRange } from "./range";
 import { arbitrate } from "./arbitration";
-import { buildSetups, type EngineContext } from "./setups";
+import { buildSetups, type BuildResult, type EngineContext } from "./setups";
 import type { RapidConfig } from "../config/defaults";
 
 /**
@@ -36,6 +36,10 @@ export type SnapshotInput = {
   priorZones?: Zone[];
   session?: SessionConfig;
   candidateFilter?: (setup: Setup, regimes: Record<Timeframe, Regime>, range: ValidatedRange | null) => boolean;
+  /** Optional explanation for a candidateFilter failure; called only after that filter returns false. */
+  candidateRejection?: (setup: Setup, regimes: Record<Timeframe, Regime>, range: ValidatedRange | null) => { code: RejectionCode; detail: string } | null;
+  /** Explicit opt-in for a product-specific candidate builder; Rapid defaults to buildSetups. */
+  candidateBuilder?: (ctx: EngineContext) => BuildResult;
   nearestCandidates?: { limit: number; price: number };
 };
 
@@ -108,6 +112,7 @@ export function buildSnapshot(inp: SnapshotInput): MarketSnapshot {
     pivots,
     atr: atrs,
     zones: eligibleZones(zones, asOf, cfg.range.maxFailedStopsPerZone),
+    zoneHistory: [...zones, ...(inp.priorZones ?? []).filter(z => !zones.some(current => current.id === z.id))],
     range,
     refPrice,
     spread,
@@ -117,8 +122,13 @@ export function buildSnapshot(inp: SnapshotInput): MarketSnapshot {
     cfg,
   };
 
-  const built = buildSetups(ctx);
-  const eligible = inp.candidateFilter ? built.setups.filter(s => inp.candidateFilter!(s, regimes, range)) : built.setups;
+  const built = (inp.candidateBuilder ?? buildSetups)(ctx);
+  const eligible = inp.candidateFilter ? built.setups.filter(s => {
+    if (inp.candidateFilter!(s, regimes, range)) return true;
+    const rejection = inp.candidateRejection?.(s, regimes, range);
+    if (rejection) built.rejections.push({ at: asOf, stage: "qualification", ...rejection, family: s.family, zoneId: s.zoneId });
+    return false;
+  }) : built.setups;
   const { selected, dropped } = arbitrate(eligible, regimes.D1);
   for (const d of dropped) {
     built.rejections.push({ at: asOf, stage: "arbitration", code: "arbitration_lost", detail: d.reason, family: d.setup.family, zoneId: d.setup.zoneId });

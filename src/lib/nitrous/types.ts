@@ -2,6 +2,7 @@ import type { NitrousAddonAccess } from "./addon-policy";
 
 /** Browser-safe contracts. Broker credentials and full identifiers never enter these payloads. */
 export type NitrousMode = "slow_drip" | "nitrous";
+export type NitrousSetupCapability = "baseline" | "fast" | "sweep";
 export type NitrousStats = {
   wins: number; losses: number; flat: number; closed: number; unresolved: number;
   netPnl: number | null; recordedPnl: number | null; grossPnl: number | null;
@@ -22,7 +23,7 @@ export type NitrousAccount = {
   environment: "live" | "demo"; masked: string; accountMasked: string; currency: string | null;
   balance: number | null; equity: number | null; equityAt: string | null; balanceAt: string | null;
   mode: NitrousMode; riskPct: number; plannedRisk: number | null; dailyLossPct: number;
-  automationEnabled: boolean; managementEnabled: boolean; fastStrategyEnabled?: boolean;
+  automationEnabled: boolean; managementEnabled: boolean; fastStrategyEnabled?: boolean; sweepStrategyEnabled?: boolean;
   state: "active" | "connected" | "paused" | "degraded" | "reconnect_required";
   blockers: string[]; resolvedSymbol: string | null; stats: NitrousStats; positions: NitrousPosition[];
 };
@@ -37,15 +38,21 @@ export type NitrousStatus = {
   consentVersion: string;
 };
 export type NitrousCandle = { t: number; o: number; h: number; l: number; c: number };
+export type NitrousSweepEvidence = {
+  pivotId: string; pivotKind: "low" | "high"; pivotPrice: number; pivotTime: number; pivotKnownAt: number;
+  candleOpenedAt: number; candleClosedAt: number; candleOpen: number; candleHigh: number; candleLow: number; candleClose: number;
+  sweepExtreme: number; confirmationThreshold: number;
+};
 export type NitrousScenario = {
   setupId: string; family: string; side: "buy" | "sell"; timeframe: string; state: string; profile?: "both" | "nitrous"; configVersion?: string;
+  capability?: NitrousSetupCapability; sweepEvidence?: NitrousSweepEvidence;
   entryBandLow: number; entryBandHigh: number; refEntry: number; stop: number; target: number;
   stopUsd: number; targetUsd: number; expiresAt: number;
   conditionsMet: string[]; conditionsPending: string[]; invalidation: number; explanation?: string;
 };
 export type NitrousWatchLevel = { low: number; high: number; role: "support" | "resistance"; origin: string; knownAt: number };
 export type NitrousScanCheck = { code: string; count: number };
-export type NitrousDiagnostics = { watchLevels: NitrousWatchLevel[]; baselineChecks: NitrousScanCheck[]; fastChecks: NitrousScanCheck[]; baselineCandidates: number | null; fastCandidates: number | null };
+export type NitrousDiagnostics = { watchLevels: NitrousWatchLevel[]; baselineChecks: NitrousScanCheck[]; fastChecks: NitrousScanCheck[]; baselineCandidates: number | null; fastCandidates: number | null; sweepChecks?: NitrousScanCheck[]; sweepCandidates?: number | null };
 export type NitrousAnalyze = {
   available: boolean; reason?: string; asOf: string | null; generatedAt: string | null;
   ageMs: number | null; stale: boolean; price: number | null; symbol: "XAUUSD";

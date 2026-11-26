@@ -9,7 +9,7 @@ export const NITROUS_CONFIG: RapidConfig = withOverrides(DEFAULT_CONFIG, "nitrou
   risk: { presetsPct: [0.5, 1, 3, 5], defaultPct: 0.5, maxPct: 5,
     // Conservative provision until a broker supplies an account-specific fee schedule.
     commissionPerLotRoundTrip: 10, sessionLossCeilingPct: 3 },
-  entry: { reentryCooldownSec: 120, momentumEnabled: false },
+  entry: { reentryCooldownSec: 120, momentumEnabled: false, requireFreshBreakCross: true },
   feed: { maxSignalToSubmitMs: 5_000 },
 });
 
@@ -18,12 +18,20 @@ export const NITROUS_FAST_CONFIG = withOverrides(NITROUS_CONFIG, "fast.2", {
   entry: { minBodyRatio: 0.45, closeOuterFraction: 0.35, touchMaxUsd: 1.5, touchAtrMult: 0.15 },
   protection: { stopCapUsd: 12 },
 });
+/** Proposed closed-candle sweep/reclaim rules, isolated from the existing baseline and fast families. */
+export const NITROUS_SWEEP_CONFIG = withOverrides(NITROUS_FAST_CONFIG, "sweep.1", {});
 export function isFastSetup(setup: { configVersion: string }): boolean {
   return setup.configVersion === NITROUS_FAST_CONFIG.configVersion;
 }
-export function configFor(mode: NitrousMode, fast = false): RapidConfig {
+export function isSweepSetup(setup: { configVersion: string }): boolean {
+  return setup.configVersion === NITROUS_SWEEP_CONFIG.configVersion;
+}
+export type NitrousStrategyVariant = "baseline" | "fast" | "sweep";
+export function configFor(mode: NitrousMode, variant: boolean | NitrousStrategyVariant = false): RapidConfig {
   const profile = profileFor(mode);
-  const base = mode === "nitrous" && fast ? NITROUS_FAST_CONFIG : NITROUS_CONFIG;
+  const choice = typeof variant === "boolean" ? (variant ? "fast" : "baseline") : variant;
+  const base = mode !== "nitrous" ? NITROUS_CONFIG : choice === "sweep" ? NITROUS_SWEEP_CONFIG
+    : choice === "fast" ? NITROUS_FAST_CONFIG : NITROUS_CONFIG;
   return { ...base, risk: { ...base.risk,
     maxPct: Math.max(...profile.riskPresets), defaultPct: profile.defaultRisk,
     sessionLossCeilingPct: profile.dailyLossPct } };

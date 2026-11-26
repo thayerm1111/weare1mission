@@ -166,7 +166,7 @@ create table if not exists public.nitrous_setup_visits (
   setup_id       text not null,
   strategy_version text not null,
   config_version text not null,
-  family         text not null check (family in ('range_reaction','break_retest','trend_pullback','momentum')),
+  family         text not null check (family in ('range_reaction','break_retest','trend_pullback','momentum','sweep_reclaim')),
   side           text not null check (side in ('buy','sell')),
   timeframe      text not null,
   zone_id        text not null,

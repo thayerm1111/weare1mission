@@ -53,6 +53,15 @@ test("public messages whitelist setup evidence and distinguish price observation
   assert.match(formatNitrousTelegramEvent(event({ kind: "triggered" })), /not confirmation of an account fill/);
 });
 
+test("sweep and reclaim alerts use the new family name and retain the reference-only lifecycle", () => {
+  const sweep = event({ family: "sweep_reclaim", profile: "nitrous", kind: "triggered" });
+  assert.equal(validNitrousTelegramEvent(sweep), true);
+  const text = formatNitrousTelegramEvent(sweep);
+  assert.match(text, /Sweep and reclaim · Nitrous/);
+  assert.match(text, /not confirmation of an account fill/);
+  assert.doesNotMatch(text, /Trend pullback|Break and retest/);
+});
+
 test("invalid geometry and inherited object keys cannot produce a channel alert", async () => {
   assert.equal(validNitrousTelegramEvent(event({ family: "__proto__" as never })), false);
   assert.equal(validNitrousTelegramEvent(event({ stop: 4202 })), false);

@@ -189,3 +189,49 @@ test("replacement plans take priority, removals precede unrelated flow changes, 
   assert.match(marketUpdate({...before,scenarios:[fast]},snapshot(),NOW,"nitrous")!,/no longer in the current read/);
   assert.equal(marketUpdate({...before,scenarios:[buy({state:"invalidated"})]},snapshot(),NOW),null,"a previously invalid plan is not announced as newly removed");
 });
+
+const sweepBuy = (over: Partial<NitrousScenario> = {}): NitrousScenario => buy({ family: "sweep_reclaim", profile: "nitrous", capability: "sweep",
+  conditionsPending: [], sweepEvidence: {
+    pivotId: "known-low", pivotKind: "low", pivotPrice: 3590, pivotTime: NOW-20*60_000, pivotKnownAt: NOW-10*60_000,
+    candleOpenedAt: NOW-6*60_000, candleClosedAt: NOW-60_000, candleOpen: 3587, candleHigh: 3591, candleLow: 3586,
+    candleClose: 3590.5, sweepExtreme: 3586, confirmationThreshold: 3590,
+  }, ...over });
+
+test("sweep story explains the known level, pierce, completed reclaim and entry near its close", () => {
+  const plan = sweepBuy();
+  const story = buildMarketStory(snapshot({ scenarios: [plan] }), { fresh: true, now: NOW, plan }).opportunity;
+  assert.equal(story.title, "Buy sweep & reclaim");
+  assert.match(story.detail, /5-minute candle swept below the known swing low at 3,590.00 to 3,586.00/);
+  assert.match(story.detail, /closed back above it at 3,590.50 \(02:59 UTC\)/);
+  assert.match(story.trigger, /inside the entry band near 3,590.50/);
+  assert.match(story.trigger, /No additional retest is required/);
+  assert.match(story.status, /Closed reclaim observed/);
+  assert.doesNotMatch(story.detail, /pullback|watches the retest/);
+  const triggered = sweepBuy({ state: "triggered" });
+  const observed = buildMarketStory(snapshot({ scenarios: [triggered] }), { fresh: true, now: NOW, plan: triggered }).opportunity;
+  assert.match(observed.title, /sweep & reclaim/);
+  assert.match(observed.status, /not a broker fill/);
+  assert.match(observed.trigger, /Broker execution still needs its own confirmation/);
+});
+
+test("sell sweep narration is direction-correct and incomplete evidence is hidden", () => {
+  const long = sweepBuy();
+  const short = sell({ family: "sweep_reclaim", profile: "nitrous", capability: "sweep", conditionsPending: [],
+    sweepEvidence: { ...long.sweepEvidence!, pivotId: "known-high", pivotKind: "high", pivotPrice: 3596, confirmationThreshold: 3596,
+      candleOpen: 3599, candleHigh: 3600, candleLow: 3595, candleClose: 3595.5, sweepExtreme: 3600 } });
+  const story = buildMarketStory(snapshot({ scenarios: [short] }), { fresh: true, now: NOW, plan: short }).opportunity;
+  assert.match(story.detail, /swept above the known swing high at 3,596.00 to 3,600.00/);
+  assert.match(story.detail, /closed back below it at 3,595.50/);
+  assert.equal(rankedSetups([long],3592.53,NOW,true,"slow_drip").length,0);
+  for (const invalid of [sweepBuy({ sweepEvidence: undefined }),sweepBuy({ sweepEvidence: { ...long.sweepEvidence!, candleClosedAt: NOW+1 } }),
+    sweepBuy({ sweepEvidence: { ...long.sweepEvidence!, pivotKnownAt: NOW-5*60_000 } }),sweepBuy({ sweepEvidence: { ...long.sweepEvidence!, candleClose: 3589 } })])
+    assert.equal(rankedSetups([invalid],3592.53,NOW,true,"nitrous").length,0);
+});
+
+test("market activity names new sweep opportunities and never requests a second retest", () => {
+  const before = snapshot({ generatedAt: at(20_000) });
+  const plan = sweepBuy();
+  assert.match(marketUpdate(before,snapshot({scenarios:[plan]}),NOW)!,/New buy sweep & reclaim/);
+  const known = snapshot({ generatedAt: at(20_000), scenarios: [plan] });
+  assert.match(marketUpdate(known,snapshot({scenarios:[{...plan,state:"armed"}]}),NOW)!,/no additional retest is required/);
+});

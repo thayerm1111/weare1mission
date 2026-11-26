@@ -72,6 +72,8 @@ export type RapidConfig = {
     /** A breakout candle needs this body/range ratio and a close in the directional outer fraction. */
     minBodyRatio: number;
     closeOuterFraction: number;
+    /** Select a fresh threshold crossing instead of a later continuation candle. Opt-in for Nitrous. */
+    requireFreshBreakCross?: boolean;
     /** An armed retest expires after this many execution-timeframe bars. */
     retestExpiryBars: number;
     /** Structural swing anchors are looked for within this many execution bars. */
