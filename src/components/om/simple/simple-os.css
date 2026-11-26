@@ -96,3 +96,12 @@ details.om-simple-fold:not([open])>:not(summary){display:none}
 .om-os[data-experience=simple] .om-genx .om-genx-grid{grid-template-columns:minmax(0,1fr)}
 .om-os[data-experience=simple] .om-genx-grid[data-has-read=false] .om-genx-panel{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;padding:8px 12px;background:none;border:0;box-shadow:none}
 .om-os[data-experience=simple] .om-genx-grid[data-has-read=false] :is(.om-genx-ask-atlas,.om-genx-flow){width:auto;margin:0;border:0;padding:5px 10px}
+@media(max-width:850px){
+ .om-os .om-tool-mobile.om-os-product .om-ws-head.om-product-header{
+  display:grid;grid-template-columns:minmax(0,1fr);align-items:start;justify-content:stretch;justify-items:stretch;
+  height:auto;max-height:none;gap:12px
+ }
+ .om-os .om-tool-mobile.om-os-product .om-product-header>.om-product-heading{width:100%;align-items:center;min-width:0}
+ .om-os .om-tool-mobile.om-os-product .om-product-header>.om-genx-go{grid-template-columns:minmax(0,1fr);width:100%;min-width:0}
+ .om-os[data-experience=simple] .om-tool-mobile .om-product-heading .om-sub{display:block;margin-top:3px;font-size:13px;line-height:1.35}
+}
