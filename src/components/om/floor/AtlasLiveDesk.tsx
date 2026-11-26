@@ -54,7 +54,7 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
   goldSetup: SetupAnswer | null; goldFailed: boolean; atlasRead: { at: string; summary: string } | null;
   sample: boolean; sampleNow?: number; tf: FloorMode; onTf: (mode: FloorMode) => void;
 }) {
-  const { isSimple, setMode: setExperienceMode } = useExperienceMode();
+  const { isSimple } = useExperienceMode();
   const [symbol, setSymbol] = useState<AtlasMarketSymbol>("XAUUSD");
   const [selectedFrame, setSelectedFrame] = useState<AtlasFrameId>(FRAME_FOR_MODE[tf]);
   const [record, setRecord] = useState<{ symbol: AtlasMarketSymbol; snapshot: AtlasMarketSnapshot | null; failed: boolean } | null>(null);
@@ -259,36 +259,37 @@ export function AtlasLiveDesk({ goldSetup, goldFailed, atlasRead, sample, sample
     const signalHasChart = !!atlasSignal.result?.idea.chart?.candles?.length;
     return <section className="om-simple-atlas om-panel" aria-label="Atlas simple market view" data-market={symbol} aria-busy={loading && !snapshot}>
       <header className="om-simple-atlas-header">
-        <div className="om-live-brand"><ProductIcon kind="atlas" size="lg"/><div><h2>Market overview</h2></div></div>
-        <div className="om-simple-atlas-tools"><button type="button" onClick={explain} disabled={sample}>Ask Atlas</button><button type="button" aria-label="Refresh market snapshot" disabled={sample || loading} onClick={() => setRevision(v => v + 1)}><RefreshCw size={17} className={loading ? "is-loading" : undefined}/></button></div>
+        <div className="om-live-brand"><Activity size={20} aria-hidden="true"/><div><h2>Market overview</h2></div></div>
+        <div className="om-simple-atlas-tools"><button type="button" onClick={explain} disabled={sample} aria-label="Ask Atlas" title="Ask Atlas"><ProductIcon kind="atlas" size="sm"/></button><button type="button" aria-label="Refresh market snapshot" disabled={sample || loading} onClick={() => setRevision(v => v + 1)}><RefreshCw size={17} className={loading ? "is-loading" : undefined}/></button></div>
       </header>
       <div className="om-simple-markets" role="group" aria-label="Select market">
         {MARKETS.map(m => <button type="button" key={m.key} aria-pressed={m.key === symbol} disabled={sample && m.key !== "XAUUSD"} onClick={() => setSymbol(m.key)}>{m.key === "XAUUSD" ? "Gold" : m.td}</button>)}
       </div>
       <MarketStory market={symbol === "XAUUSD" ? "Gold" : market.td} direction={storyDirection(view.direction)} stage={phase} feed={feed}
         next={next} stamp={sample ? "Sample data" : feed === "current" ? current.label + " candles" : undefined}/>
+      {!signalHasChart && <section className="om-simple-market-chart" aria-label="Market chart">
+        <header><h3>{market.td} chart</h3><label>Timeframe<select aria-label="Chart timeframe" value={selectedFrame} onChange={event => chooseFrame(event.target.value as AtlasFrameId)}>{ATLAS_FRAMES.map(frame => <option value={frame.id} key={frame.id}>{frame.label}</option>)}</select></label></header>
+        {current.bars.length >= 2 ? <div className="om-simple-chart-canvas"><OmChart bars={current.bars} timeKnown={current.timeKnown} tfMs={frameSpec.ms} tfLabel={current.label}
+          simpleView watchPrice={feed === "current" && currentWatch ? view.trigger?.price : null}
+          price={quote.price} priceLive={quote.live} dec={market.dp} levels={levels} structureZones={structureZones} labelStyle="backed"
+          levelColors={{ support: "var(--om-pos)", resistance: "var(--om-neg)" }} isOpenAt={calendar}
+          viewKey={"atlas-floor:" + symbol + ":" + selectedFrame} label={market.td + " " + current.label + " candles and support and resistance"}/></div>
+          : <div className="om-simple-chart-empty" role="status">{loading ? "Loading market candles…" : "Chart data is unavailable. Refresh to try again."}</div>}
+      </section>}
       <div className="om-simple-atlas-actions">
         {symbol === "XAUUSD" ? <button type="button" className="om-simple-primary" disabled={sample || atlasSignal.busy || !marketOpen} onClick={() => void atlasSignal.generate()}><Sparkles size={18} aria-hidden="true"/>{atlasSignal.busy ? "Reading the market…" : "Generate Atlas signal"}</button>
           : symbol === "EURUSD" || symbol === "GBPJPY" ? <Link className="om-simple-primary" href={"/portal/genx?market=fx&pair=" + symbol}>Find a {market.td} setup in GenX FX</Link>
           : <Link className="om-simple-primary" href="/portal/signals">Find a forex setup in OM AI Plays</Link>}
         <button type="button" disabled={sample} onClick={() => openAtlas({ voice: true, context, followContext: CONTEXT_KEY })}><Mic size={18} aria-hidden="true"/>Talk to Atlas</button>
       </div>
-      {!signalHasChart && <section className="om-simple-market-chart" aria-label="Market chart">
-        <header><h3>{market.td} chart</h3><label>Timeframe<select aria-label="Chart timeframe" value={selectedFrame} onChange={event => chooseFrame(event.target.value as AtlasFrameId)}>{ATLAS_FRAMES.map(frame => <option value={frame.id} key={frame.id}>{frame.label}</option>)}</select></label></header>
-        {current.bars.length >= 2 ? <div className="om-simple-chart-canvas"><OmChart bars={current.bars} timeKnown={current.timeKnown} tfMs={frameSpec.ms} tfLabel={current.label}
-          price={quote.price} priceLive={quote.live} dec={market.dp} levels={levels} structureZones={structureZones} labelStyle="backed"
-          levelColors={{ support: "var(--om-pos)", resistance: "var(--om-neg)" }} isOpenAt={calendar}
-          viewKey={"atlas-floor:" + symbol + ":" + selectedFrame} label={market.td + " " + current.label + " candles and support and resistance"}/></div>
-          : <div className="om-simple-chart-empty" role="status">{loading ? "Loading market candles…" : "Chart data is unavailable. Refresh to try again."}</div>}
-      </section>}
       <details className="om-simple-fold"><summary>Prices and conditions</summary>
+        <p className="om-label">{sample ? "Sample data" : "Analysis updated " + age(snapshot?.asOf, now)}</p>
         <p className="om-label">{quoteNote} · {fmt(quote.price)}</p>
         <div className="om-simple-market-levels"><div><span>Support</span><strong data-no-i18n translate="no">{zoneText(view.support)}</strong></div><div><span>Resistance</span><strong data-no-i18n translate="no">{zoneText(view.resistance)}</strong></div></div>
         <p>{currentWatch && view.trigger ? view.trigger.condition : watchSummary}</p>
         {currentWatch && view.invalidation && <p>{view.invalidation.condition}</p>}
       </details>
       <AtlasCommandSignalPanel controller={atlasSignal}/>
-      <div className="om-simple-atlas-foot"><span>{sample ? "Illustrative sample data" : "Analysis updated " + age(snapshot?.asOf, now)} · Price-action watch</span><button type="button" className="om-simple-detail-link" onClick={() => setExperienceMode("advanced")}>Advanced view</button></div>
     </section>;
   }
 

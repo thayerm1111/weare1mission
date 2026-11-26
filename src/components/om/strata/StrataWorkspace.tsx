@@ -402,7 +402,7 @@ export function StrataWorkspace() {
         <button type="button" aria-pressed={!alternative} onClick={()=>setAlternative(false)}>Near edge</button>
         <button type="button" aria-pressed={alternative} onClick={()=>setAlternative(true)}>Opposite edge</button>
       </div>}
-      {displayFeed ? <StrataChart analysis={displayFeed.analysis} bars={displayFeed.bars}
+      {displayFeed ? <StrataChart watchPrice={storyFeed === "current" || storyFeed === "recorded" ? displayedPlan?.level : null} analysis={displayFeed.analysis} bars={displayFeed.bars}
         price={generated ? generated.quoteAtGeneration ?? displayFeed.price : quote ?? displayFeed.price}
         live={!generated && tickFresh} selected={displayedPlan && referenceLevels && !displayedPlan.reference
           ? { ...displayedPlan, reference: true } : displayedPlan} snapshot={!!generated} simple={isSimple} />

@@ -230,7 +230,7 @@ function AppDock() {
 function AccountPlacement() {
   const path = usePathname() || "";
   const here = activeKey(path, useSearchParams().get("view"));
-  return <div className="om-account-placement" data-mobile-visible={here === "floor" || here === "flow" ? "true" : undefined}><FlowAccountBar /></div>;
+  return <div className="om-account-placement" data-workspace={here} data-mobile-visible={here === "floor" || here === "flow" ? "true" : undefined}><FlowAccountBar /></div>;
 }
 
 export function AppShell({ children, member, configured = true, preview = false, atlas = false }: {

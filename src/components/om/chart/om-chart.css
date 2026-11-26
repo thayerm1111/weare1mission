@@ -154,3 +154,20 @@
 .om-ch[data-appearance="nitrous"] .om-ch-edge { max-width: calc(100% - 175px); font-size: 11px; line-height: 1.4; }
 .om-ch[data-appearance="nitrous"][data-compact] .om-ch-inspect:not([data-selected="true"]) > span:first-child { display: grid; gap: 0; }
 .om-ch[data-appearance="nitrous"][data-compact] .om-ch-inspect .om-ch-inspect-hint { max-width: 105px; text-align: right; line-height: 14px; }
+
+.om-ch-line-read{position:absolute;z-index:2;top:5px;left:6px;display:grid;gap:1px;pointer-events:none;color:var(--om-text);font-variant-numeric:tabular-nums}
+.om-ch-line-read span{font-size:11px;line-height:1.2;color:var(--om-text-2)}
+.om-ch-line-read b{font-size:18px;line-height:1.15;letter-spacing:-.035em;font-weight:620}
+.om-ch-simple-path{stroke:var(--om-ai)}
+.om-ch-line-dot,.om-ch-line-point{fill:var(--om-ai)}
+.om-ch-line-grid{stroke:var(--om-ch-grid);stroke-dasharray:2 5}
+.om-ch-line-cursor{stroke:var(--om-text-2);stroke-dasharray:3 4}
+.om-ch-line-time{font:11px system-ui;fill:var(--om-text-2)}
+.om-ch-line-watch{color:var(--om-watch,var(--om-text-2))}
+.om-ch-line-watch line{stroke:currentColor;stroke-width:1.35}
+.om-ch-line-watch rect{fill:var(--om-surface);stroke:currentColor;stroke-opacity:.6}
+.om-ch-line-watch text{fill:currentColor;font:600 10px system-ui}
+.om-ch .om-ch-view-toggle{font-size:12px;gap:5px;min-width:max-content}
+.om-ch[data-chart-view=line] .om-ch-tools{right:3px;top:2px}
+.om-ch[data-chart-view=line] .om-ch-tools button{min-height:38px}
+@media(pointer:coarse){.om-ch[data-chart-view=line] .om-ch-tools button{min-height:44px;min-width:44px}}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { CandlestickChart } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { CandlestickChart, Route } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
 import { candleTimeText, type TimedBar } from "@/lib/chart/candleTime";
 import type { ChartLevel } from "@/lib/floor/chart";
@@ -12,6 +12,7 @@ export type VisionChartProps = {
   bars: TimedBar[]; levels: ChartLevel[]; symbol: string; dec: number;
   timeframe: string; tfMs: number; price: number | null;
   direction: VisionBias; reference: boolean; snapshot?: boolean; priceLive?: boolean;
+  simpleView?: boolean; watchPrice?: number | null; headerControl?: ReactNode;
   marketStatus?: string; isOpenAt?: (at: number) => boolean;
   viewKey: string; zone?: {low:number;high:number}|null; title?:string; timeKnown?:boolean;
 };
@@ -36,7 +37,7 @@ const compact=(l:ChartLevel,idx:number):string=>{
  * available when the read contains a coherent entry, stop and target.
  */
 export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, tfMs, price, direction,
-  reference, snapshot=false, priceLive=false, marketStatus, isOpenAt, viewKey, zone, title, timeKnown=true }:VisionChartProps) {
+  reference, snapshot=false, priceLive=false, marketStatus, isOpenAt, viewKey, zone, title, timeKnown=true, simpleView=false, watchPrice, headerControl }:VisionChartProps) {
   const [mapKey, setMapKey] = useState<string | null>(null);
   const host=useRef<HTMLDivElement>(null);
   const [width,setWidth]=useState(640);
@@ -139,9 +140,10 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
     <header className="om-vision-chart-head">
       <div className="om-vision-instrument">
         <CandlestickChart size={19} aria-hidden="true" />
-        <div><h3>{symbol}</h3><span>{timeframe} · {sourceLabel}{reference && model.scenario && " · Watch levels only"}</span></div>
+        <div><h3>{symbol}</h3><span>{!headerControl && timeframe + " · "}{sourceLabel}{!simpleView && reference && model.scenario && " · Watch levels only"}</span></div>
       </div>
-      {hasHistory && model.scenario && <div className="om-vision-view" role="group" aria-label="Chart view">
+      {headerControl}
+      {!simpleView && hasHistory && model.scenario && <div className="om-vision-view" role="group" aria-label="Chart view">
         <button type="button" aria-controls={chartId} aria-pressed={!showMap} onClick={() => setMapKey(null)}>Candles</button>
         <button type="button" aria-controls={chartId} aria-pressed={showMap} onClick={() => setMapKey(viewKey)}>Setup map</button>
       </div>}
@@ -149,7 +151,7 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
     <div ref={host} id={chartId} className="om-vision-chart-body">
       {hasHistory && !showMap ? <div className="om-vision-expanded">
         <OmChart bars={bars} timeKnown={timeKnown} tfMs={tfMs} tfLabel={timeframe}
-          price={price} priceLive={!snapshot && priceLive} snapshot={snapshot}
+          simpleView={simpleView} watchPrice={watchPrice} price={price} priceLive={!snapshot && priceLive} snapshot={snapshot}
           dec={dec} levels={levels} isOpenAt={isOpenAt} labelStyle="backed" zone={zone ?? null}
           viewKey={viewKey} label={title ?? symbol + " recorded candlesticks"}/>
       </div> : recent.length ? <svg role="img" aria-label={symbol + " recorded candles and conditional levels"}
@@ -212,6 +214,11 @@ export function VisionChart({ bars: sourceBars, levels, symbol, dec, timeframe, 
           y="19" textAnchor="end">{reference?"CONDITIONAL PATH":"SETUP PATH"}</text>}
       </svg> : <div className="om-vision-chart-empty" role="status">Candle history is unavailable for this read.</div>}
     </div>
+    {simpleView && hasHistory && model.scenario && <button className="om-simple-map-toggle" type="button" aria-controls={chartId}
+      aria-pressed={showMap} onClick={() => setMapKey(showMap ? null : viewKey)}>
+      {showMap ? <CandlestickChart size={16} aria-hidden="true"/> : <Route size={16} aria-hidden="true"/>}
+      {showMap ? "Back to price chart" : "View setup map"}
+    </button>}
     {model.scenario && (showMap || bars.length === 1) && <p className="om-vision-chart-disclaimer">
       {reference?"Illustrated scenario only. Entry confirmation is still required.":"Conditional path from the recorded entry to its targets."}
     </p>}

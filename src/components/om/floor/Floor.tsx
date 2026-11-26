@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, ChevronDown, Eye, EyeOff, Info, Mic, Send, Sparkles } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Eye, EyeOff, Info, LayoutGrid, Mic, Send, Sparkles } from "lucide-react";
 import { OmChart } from "@/components/om/chart/OmChart";
 import { ProductIcon } from "@/components/om/ProductIcon";
 import { useFlowAccount } from "@/components/om/FlowAccount";
@@ -493,6 +493,7 @@ export function GenxCard({ ov, state, failed, period, onPeriod, icon = false }: 
 export function Floor({ sample }: { sample?: FloorSample }) {
   const { isSimple } = useExperienceMode();
   const [showResults, setShowResults] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
   const [compact, setCompact] = useState(false);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 980px)");
@@ -679,13 +680,16 @@ export function Floor({ sample }: { sample?: FloorSample }) {
           <h1 className="om-title">{isSimple ? "One Mission OS" : "OM OS"}{isSample && <span className="om-chip om-sample" role="note">Sample data</span>}</h1>
           {!isSimple && <p className="om-sub">Your markets, intelligence and performance. One workspace.</p>}
         </div>
+        {isSimple && <button type="button" className="om-home-app-jump" aria-expanded={appsOpen} aria-controls="om-home-apps"
+          onClick={() => setAppsOpen(open => !open)}><LayoutGrid size={16} aria-hidden="true"/>Apps</button>}
         {!usingSharedAccount && <AccountSummary ov={ov} state={ovState} switching={switching} hide={hide} onHide={() => setHide((h) => { store.set("om:floor:hide", h ? "0" : "1"); return !h; })} onPick={choose} now={now} />}
       </header>
 
-      <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
-        sample={isSample} sampleNow={sample?.nowMs} tf={tf} onTf={pickTf} />
-
-      {isSimple && <HomeApps />}
+      <div className="om-home-workspace" data-apps-open={appsOpen || undefined}>
+        {isSimple && <HomeApps />}
+        <AtlasLiveDesk goldSetup={setup} goldFailed={setupFailed} atlasRead={ov?.atlas?.read ?? null}
+          sample={isSample} sampleNow={sample?.nowMs} tf={tf} onTf={pickTf} />
+      </div>
       {!isSample && <NitrousAccountSummary />}
 
       <div className="om-os-performance">

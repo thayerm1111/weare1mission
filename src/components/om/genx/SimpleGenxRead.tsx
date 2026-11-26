@@ -1,25 +1,26 @@
 "use client";
 
-import { useMemo } from "react";
 import { floorMarketRead } from "@/lib/floor/marketIntelligence";
 import type { TimedBar } from "@/lib/chart/candleTime";
-import { MarketStory, storyDirection, type StoryFeed, type StoryStage } from "../simple/MarketStory";
+import { storyDirection, type StoryFeed, type StoryStage } from "../simple/MarketStory";
 import { actionWords } from "@/lib/genx/words";
 
 const price = (value: number | null | undefined, dec: number) => typeof value === "number" && Number.isFinite(value)
   ? value.toLocaleString("en-US", { minimumFractionDigits: dec, maximumFractionDigits: dec }) : "—";
 
-export function SimpleGenxRead({ market, action, bias, entry, dec, snapshot, closed, failed, loaded,
+export function genxMarketStory({ market, action, bias, entry, dec, snapshot, closed, failed, loaded,
   stage, bars, tfMs, timeKnown, asOf, now, scalp }: {
   market: string; action?: string; bias?: string | null; entry?: number | null; dec: number;
   snapshot: boolean; closed: boolean; failed: boolean; loaded: boolean;
   stage?: "watching" | "forming" | "live" | null; bars: TimedBar[]; tfMs: number;
   timeKnown: boolean; asOf?: string | null; now: number; scalp?: "buy" | "sell";
 }) {
-  const candleRead = useMemo(() => floorMarketRead(bars, tfMs, now, timeKnown), [bars, tfMs, now, timeKnown]);
+  const candleRead = floorMarketRead(bars, tfMs, now, timeKnown);
   const candleAge = candleRead.candleAt == null ? null : now - candleRead.candleAt - tfMs;
   const recentCandles = timeKnown && candleAge !== null && candleAge >= 0 && candleAge <= tfMs * 2 + 60_000;
-  const direction = storyDirection(bias || (snapshot || recentCandles ? candleRead.trend : null));
+  const biasDirection = storyDirection(bias);
+  const observed = snapshot || recentCandles ? storyDirection(candleRead.momentum) : "unclear";
+  const direction = biasDirection === "unclear" ? observed : biasDirection;
   const age = asOf ? now - Date.parse(asOf) : NaN;
   const feed: StoryFeed = snapshot ? "recorded" : closed ? "closed" : failed ? "delayed" :
     !loaded || !now ? "loading" : !Number.isFinite(age) || age < -3000 || age > 300_000 ? "delayed" :
@@ -28,6 +29,7 @@ export function SimpleGenxRead({ market, action, bias, entry, dec, snapshot, clo
   const phase: StoryStage = scalp ? "forming" : action ? !signal.side ? "looking" : signal.waiting ? "forming" : "review" :
     stage === "live" ? "review" : stage === "forming" ? "forming" : "looking";
   const level = typeof entry === "number" && Number.isFinite(entry) && entry > 0 ? price(entry, dec) : null;
+  let watchPrice = level && (scalp || phase !== "looking") ? entry : null;
   let next = "Wait for a clearer setup.";
   if (scalp) next = "Check the short-term entry and stop before deciding.";
   else if (phase === "review") next = snapshot ? "Check the saved entry and stop against the market now." : "Open the setup to review the entry and stop.";
@@ -42,10 +44,13 @@ export function SimpleGenxRead({ market, action, bias, entry, dec, snapshot, clo
     const close = candleRead.close;
     const nearby = [candleRead.support, candleRead.resistance].flatMap(mark => mark ? [mark.price] : []);
     const nearest = nearby.sort((a, b) => Math.abs(a - close) - Math.abs(b - close))[0];
-    if (nearest != null) next = "See how price reacts near " + price(nearest, dec) + ".";
+    if (nearest != null) {
+      watchPrice = nearest;
+      next = "See how price reacts near " + price(nearest, dec) + ".";
+    }
   }
-  return <MarketStory market={market} lean={!!bias} direction={direction} stage={phase} feed={feed} next={next}
-    stamp={snapshot ? "At analysis" : undefined}/>;
+  return { market, lean: biasDirection === "up" || biasDirection === "down", direction, stage: phase, feed, next, stamp: snapshot ? "At analysis" : undefined,
+    watchPrice: feed === "recorded" || feed === "current" ? watchPrice : null };
 }
 
 export function SimpleGenxLevels({ entry, stop, target, dec, reference }: {

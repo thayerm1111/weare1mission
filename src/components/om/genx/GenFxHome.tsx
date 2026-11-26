@@ -15,7 +15,8 @@ import { isOpen } from "@/lib/cashtrap/marketHours";
 import { CREDIT_COST } from "@/lib/creditConfig";
 import type { ChartLevel } from "@/lib/floor/chart";
 import type { Resp, PlayRow, Tracked, SetupLevels } from "@/components/portal/floor/GenFxDesk";
-import { SimpleGenxRead, SimpleGenxLevels } from "./SimpleGenxRead";
+import { MarketStory } from "../simple/MarketStory";
+import { genxMarketStory, SimpleGenxLevels } from "./SimpleGenxRead";
 import "./genx-workspace.css";
 
 type Live = { symbol?: string; g?: unknown; locked?: { stage?: string } | null; candles?: unknown; candlesTz?: unknown; price?: unknown; asOf?: string; error?: string };
@@ -114,25 +115,32 @@ export function GenFxHome(p: GenFxHomeProps) {
   const readAt = p.response?.asOf ?? p.saved?.at;
   const px = (value: number | null | undefined) => finite(value) ? value.toFixed(instrument.dec) : "—";
   const closed = now > 0 && !fxOpen(now);
+  const simpleStory = isSimple ? genxMarketStory({
+    market: instrument.name, action: read?.action, bias: seen?.directional_bias, entry: read?.entry,
+    dec: instrument.dec, snapshot: chart.snapshot, closed, failed, loaded: !!current, stage: shared.stage,
+    bars: chart.bars, tfMs: chart.tf.ms, timeKnown: chart.timeKnown, asOf: current?.asOf, now,
+  }) : null;
+  const controls = <div className="om-genx-go">
+        {isSimple ? <label className="om-simple-horizon"><span>Timeframe</span>
+          <select aria-label="Analysis timeframe" value={mode} onChange={event => p.setMode(event.target.value)}>
+            {MODES.map(option => <option key={option.id} value={option.id}>{option.simple}</option>)}
+          </select></label> : <div className="om-seg" role="group" aria-label="FX trade horizon">{MODES.map((option) => <button type="button" key={option.id} aria-pressed={mode === option.id} onClick={() => p.setMode(option.id)} title={option.sub}>{option.label}</button>)}</div>}
+        <button type="button" className="om-btn" disabled={p.loading} onClick={p.analyze}>{p.loading && <Loader2 className="animate-spin" aria-hidden="true"/>}{p.loading ? "Analyzing " + instrument.name + "…" : "Analyze " + instrument.name}</button>
+        <p className="om-label">{p.billing === false ? "FX reads currently have no credit charge" : p.billing === true ? `${CREDIT_COST.genx} credits for a plan · included with the FLOW Pass` : `Up to ${CREDIT_COST.genx} credits for a plan · included with the FLOW Pass`}</p>
+      </div>;
   return <div className="om-ws om-genx om-genfx om-os-product om-tool-mobile" data-pair={p.pair}>
     <header className="om-ws-head om-product-header">
       <div className="om-product-heading"><ProductIcon kind="genx" size="lg"/><div className="om-product-copy">
         {!isSimple && <p className="om-product-kicker">Currency intelligence</p>}<h1 className="om-title">GenX FX</h1>
         <p className="om-sub">{isSimple ? "Currency setup finder" : "Currency markets, mapped into direction, levels and entry conditions."}</p>
       </div></div>
-      <div className="om-genx-go">
-        <div className="om-seg" role="group" aria-label="FX trade horizon">{MODES.map((option) => <button type="button" key={option.id} aria-pressed={mode === option.id} onClick={() => p.setMode(option.id)} title={option.sub}>{isSimple ? option.simple : option.label}</button>)}</div>
-        <button type="button" className="om-btn" disabled={p.loading} onClick={p.analyze}>{p.loading && <Loader2 className="animate-spin" aria-hidden="true"/>}{p.loading ? "Analyzing " + instrument.name + "…" : "Analyze " + instrument.name}</button>
-        <p className="om-label">{p.billing === false ? "FX reads currently have no credit charge" : p.billing === true ? `${CREDIT_COST.genx} credits for a plan · included with the FLOW Pass` : `Up to ${CREDIT_COST.genx} credits for a plan · included with the FLOW Pass`}</p>
-      </div>
+      {!isSimple && controls}
     </header>
     <div className="om-genfx-pairs" role="group" aria-label="Forex pair">{Object.values(PAIRS).map((pair) => <button type="button" key={pair.key} aria-pressed={p.pair === pair.key} onClick={() => p.setPair(pair.key)}>
       <strong>{pair.name}</strong><small>{pair.key === "EURUSD" ? "Euro / US dollar" : "British pound / Japanese yen"}</small>
     </button>)}</div>
     {p.error && <p className="om-flow-err" role="alert">{p.error}</p>}
-    {isSimple ? <SimpleGenxRead market={instrument.name} action={read?.action} bias={seen?.directional_bias} entry={read?.entry}
-      dec={instrument.dec} snapshot={chart.snapshot} closed={closed} failed={failed} loaded={!!current}
-      stage={shared.stage} bars={chart.bars} tfMs={chart.tf.ms} timeKnown={chart.timeKnown} asOf={current?.asOf} now={now}/> :
+    {simpleStory ? <MarketStory {...simpleStory}/> :
       <VisionDirection product="GenX FX" quoteSymbol={instrument.name} dec={instrument.dec} quote={chart.price} quoteLabel={chart.snapshot ? "AT GENERATION" : "MARKET READ"}
         bias={bias} status={p.saved ? "SAVED READ" : read ? "ANALYSIS SNAPSHOT" : failed ? "REFRESH NEEDED" : closed ? "MARKET CLOSED" : "MARKET CONTEXT"}
         tagline={read ? action?.waiting ? "ENTRY CONDITION STILL REQUIRED" : "REVIEW THE ENGINE’S LEVELS" : "CHOOSE A PAIR AND ANALYZE"}
@@ -142,10 +150,11 @@ export function GenFxHome(p: GenFxHomeProps) {
     <section className="om-panel om-genfx-chart" aria-label={instrument.name + " chart and entry levels"}>
       <div className="om-genfx-chart-head"><h2>{instrument.name} · {chart.tf.label} price action</h2><span>{chart.snapshot ? "Recorded " + when(readAt) : failed ? current ? "Refresh unavailable · last market read " + when(current.asOf) : "Market read unavailable" : "Last market read " + when(current?.asOf)}</span></div>
       {chart.bars.length >= 2 ? <div className="om-genfx-chart-canvas"><OmChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tf.ms} tfLabel={chart.tf.label}
-        price={chart.price} priceLive={false} snapshot={chart.snapshot} fitLevels={!!read} dec={instrument.dec} levels={displayLevels} zone={zone}
+        simpleView={isSimple} watchPrice={simpleStory?.watchPrice} price={chart.price} priceLive={false} snapshot={chart.snapshot} fitLevels={!!read} dec={instrument.dec} levels={displayLevels} zone={zone}
         labelStyle="backed" isOpenAt={fxOpen} viewKey={`${p.pair}:${chart.snapshot ? "read:" + readAt : "current"}:${chart.tf.interval}`}
         label={`${instrument.name} actual candles and ${reference ? "conditional reference" : "engine"} levels`}/></div> :
         <p className="om-empty">{p.saved ? "The original candles were not stored with this saved read. Its recorded prices and levels are shown below." : read ? "The original candle snapshot is unavailable for this read. Current candles are not substituted." : failed ? "Current candles are unavailable. The market read will refresh automatically." : "Loading this pair’s actual candles…"}</p>}
+      {isSimple && controls}
       {read && (isSimple ? <SimpleGenxLevels entry={action?.side ? read.entry : null} stop={action?.side ? read.stop_loss : null} target={action?.side ? read.tp1 : null} dec={instrument.dec} reference={reference}/> :
         <VisionLevels symbol={p.pair} dec={instrument.dec} entry={action?.side ? read.entry : null} stop={action?.side ? read.stop_loss : null} targets={action?.side ? [read.tp1, read.tp2, read.tp3] : []} reference={reference}/>)}
       <div className="om-genfx-decision">

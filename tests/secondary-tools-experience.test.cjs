@@ -228,7 +228,11 @@ test("Simple Pulse retains scan age and price levels without inventing a chart o
     confirmed: 4, total: 6, checklist: [{ label: "RSI factor", ok: true }], zone: "discount", rsi: 51,
     entry: 3600, stopLoss: 3595, takeProfits: [3610, 3615], riskReward: "2:1" };
   const home = harness("PulseHome", { props: { setups: [setup], loading: false, asOf: new Date(NOW - 20 * 60_000).toISOString(), msg: "Latest scan failed", hydrated: true, scan() {}, onDeepDive() {} } });
-  assert.match(home.text(), /An earlier scan.*not what is tradable now/);
+  assert.match(home.text(), /An earlier scan.*Scan again for current conditions/);
+  assert.match(home.text(), /Leans up/);
+  const meter = home.find(n => n.type === "meter")[0];
+  assert.equal(meter.props.max, setup.total);
+  assert.equal(meter.props.value, setup.confirmed);
   const detail = home.find(isType("Detail"))[0];
   assert.equal(detail.props.stale, true);
   const h = harness("Detail", { props: detail.props });

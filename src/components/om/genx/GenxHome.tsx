@@ -19,7 +19,8 @@ import { ProductIcon } from "@/components/om/ProductIcon";
 import { MobileSection } from "@/components/om/MobileSection";
 import { openAtlas } from "@/lib/atlas/open";
 import { useExperienceMode } from "@/components/om/experience";
-import { SimpleGenxRead, SimpleGenxLevels } from "./SimpleGenxRead";
+import { MarketStory } from "../simple/MarketStory";
+import { genxMarketStory, SimpleGenxLevels } from "./SimpleGenxRead";
 import "./genx-workspace.css";
 
 /**
@@ -231,7 +232,25 @@ export function GenxHome(p: GenxHomeProps) {
       action?.waiting?"Awaiting entry":"Review setup":"Not yet requested",tone:read&&!action?.waiting?"ok":"watch"},
   ];
 
-
+  const simpleStory = isSimple ? genxMarketStory({
+    market: subject === "scalp" ? "Gold · short-term" : "Gold", action: read?.action, bias: seen?.directional_bias,
+    entry: subject === "scalp" ? read?.scalp?.entry : read?.entry, dec: 2, snapshot: chart.snapshot, closed: shut,
+    failed: liveFailed, loaded: !!live, stage: liveView.stage, bars: chart.bars, tfMs: tf.ms, timeKnown: chart.timeKnown,
+    asOf: liveAt, now, scalp: subject === "scalp" ? read?.scalp?.side : undefined,
+  }) : null;
+  const controls = <div className="om-genx-go">
+          {isSimple ? <label className="om-simple-horizon"><span>Timeframe</span>
+          <select aria-label="Analysis timeframe" value={mode} onChange={event => p.setMode(event.target.value)}>
+            {MODES.map(option => <option key={option.id} value={option.id}>{option.id === "quick" ? "Short term" : option.id === "intraday" ? "Today" : "Longer term"}</option>)}
+          </select></label> : <div className="om-seg" role="group" aria-label="Horizon">
+            {MODES.map((m) => <button key={m.id} type="button" aria-pressed={mode === m.id} onClick={() => p.setMode(m.id)} title={m.sub}>{m.label}</button>)}
+          </div>}
+          <button type="button" className="om-btn" onClick={p.analyze} disabled={p.loading}>
+            {p.loading && <Loader2 className="animate-spin" aria-hidden="true" />}
+            {p.loading ? "Analyzing gold…" : read && !saved ? "Analyze again" : "Analyze gold"}
+          </button>
+          <p className="om-label">{CREDIT_COST.genx} credits a read · included with the FLOW Pass{!isSimple && " · " + horizon.label + ": " + horizon.sub}</p>
+        </div>;
   return (
     <div className="om-ws om-genx om-os-product om-tool-mobile">
       <header className="om-ws-head om-product-header">
@@ -243,22 +262,10 @@ export function GenxHome(p: GenxHomeProps) {
             <p className="om-sub">{isSimple ? "Gold setup finder" : "Read gold’s structure, follow the setup, and review the engine’s record."}</p>
           </div>
         </div>
-        <div className="om-genx-go">
-          <div className="om-seg" role="group" aria-label="Horizon">
-            {MODES.map((m) => <button key={m.id} type="button" aria-pressed={mode === m.id} onClick={() => p.setMode(m.id)} title={m.sub}>{isSimple ? m.id === "quick" ? "Short term" : m.id === "intraday" ? "Today" : "Longer term" : m.label}</button>)}
-          </div>
-          <button type="button" className="om-btn" onClick={p.analyze} disabled={p.loading}>
-            {p.loading && <Loader2 className="animate-spin" aria-hidden="true" />}
-            {p.loading ? "Analyzing gold…" : read && !saved ? "Analyze again" : "Analyze gold"}
-          </button>
-          <p className="om-label">{CREDIT_COST.genx} credits a read · included with the FLOW Pass{!isSimple && " · " + horizon.label + ": " + horizon.sub}</p>
-        </div>
+        {!isSimple && controls}
       </header>
 
-      {isSimple && <SimpleGenxRead market={subject === "scalp" ? "Gold · short-term" : "Gold"} action={read?.action} bias={seen?.directional_bias}
-        entry={subject === "scalp" ? read?.scalp?.entry : read?.entry} dec={2} snapshot={chart.snapshot} closed={shut}
-        failed={liveFailed} loaded={!!live} stage={liveView.stage} bars={chart.bars} tfMs={tf.ms} timeKnown={chart.timeKnown}
-        asOf={liveAt} now={now} scalp={subject === "scalp" ? read?.scalp?.side : undefined}/>}
+      {simpleStory && <MarketStory {...simpleStory}/>}
       {!isSimple && <VisionDirection product="GENX" bias={visionBias}
         eyebrow="ONE MISSION · GOLD SIGNAL ENGINE" status={saved?"SAVED READ":shut?"MARKET CLOSED":read?"SIGNAL ANALYSIS":liveFailed?"REFRESH NEEDED":"MARKET CONTEXT"}
         quote={price} quoteLabel={chart.snapshot?"AT GENERATION":shut?"LAST PRICE":"MARKET READ"}
@@ -285,12 +292,13 @@ export function GenxHome(p: GenxHomeProps) {
           {chart.bars.length > 0 ? <VisionChart bars={chart.bars} timeKnown={chart.timeKnown} tfMs={tf.ms}
             timeframe={tf.label} dec={2} symbol="XAU/USD" price={price}
             priceLive={false} marketStatus={fresh} isOpenAt={goldOpen}
-            snapshot={chart.snapshot} levels={displayedMarks} zone={marks.zone}
+            simpleView={isSimple} watchPrice={simpleStory?.watchPrice} snapshot={chart.snapshot} levels={displayedMarks} zone={marks.zone}
             direction={chartSide==="buy"?"buy":chartSide==="sell"?"sell":visionBias}
             reference={!read || chartReference} viewKey={chartKey}
             title="GENX gold candle chart and conditional trade levels"/> :
             <div className="om-genx-chart-status" role="status"><strong>{chart.snapshot ? "Original chart unavailable" : liveFailed ? "Gold chart unavailable" : !live ? "Loading gold chart…" : "Waiting for candles"}</strong>
               <span>{chart.snapshot ? "This read has no stored candle history." : liveFailed ? "The next market refresh will try again." : `XAU/USD · ${tf.label}`}</span></div>}
+          {isSimple && controls}
           {read && !hasTradeSide && (isSimple ? <details className="om-simple-fold"><summary>Key prices</summary><ReadLevels g={read} subject={subject} saved={!!saved} /></details> : <ReadLevels g={read} subject={subject} saved={!!saved} />)}
           {read && hasTradeSide && isSimple && <SimpleGenxLevels entry={subject==="scalp"&&read.scalp?read.scalp.entry:read.entry}
             stop={subject==="scalp"&&read.scalp?read.scalp.stop:read.stop_loss} target={simpleTarget} dec={2} reference={chartReference||!!saved}/>}

@@ -15,9 +15,9 @@ type Horizon = typeof OPTIONS[number]["key"];
 type Series = { m5: Bar[]; m15: Bar[]; h1: Bar[]; h4: Bar[] };
 
 /** STRATA visualization only — never overrides or invents the engine's levels. */
-export function StrataChart({ analysis, bars, price, live, selected, snapshot = false, simple = false }: {
+export function StrataChart({ analysis, bars, price, live, selected, snapshot = false, simple = false, watchPrice }: {
   analysis: Analysis; bars: Series; price: number; live: boolean;
-  selected: Scenario | null; snapshot?: boolean; simple?: boolean;
+  selected: Scenario | null; snapshot?: boolean; simple?: boolean; watchPrice?: number | null;
 }) {
   const [frame,setFrame]=useState<Horizon>("m15");
   const tf=OPTIONS.find(x=>x.key===frame)!;
@@ -38,14 +38,19 @@ export function StrataChart({ analysis, bars, price, live, selected, snapshot = 
       analysis.regime==="range"?"range":"mixed";
   return (
     <div className="strata-chart strata-chart-vision">
-      <div className="strata-vision-tf">
-        <span>{simple ? "Gold chart" : "GOLD PRICE ACTION"}</span>
+      {!simple && <div className="strata-vision-tf">
+        <span>GOLD PRICE ACTION</span>
         <div className="strata-timeframe" role="group" aria-label="Price-action timeframe">
           {OPTIONS.map(x=><button type="button" key={x.key} aria-pressed={frame===x.key}
             onClick={()=>setFrame(x.key)}>{x.title}</button>)}
         </div>
-      </div>
+      </div>}
       <VisionChart bars={bars[frame]??[]} timeframe={tf.title} tfMs={tf.ms}
+        simpleView={simple} watchPrice={watchPrice}
+        headerControl={simple && <select className="om-simple-chart-frame" aria-label="Price-action timeframe" value={frame}
+          onChange={e => setFrame(e.target.value as Horizon)}>{OPTIONS.map(option =>
+            <option key={option.key} value={option.key}>{option.title.toLowerCase()}</option>)}</select>}
+        marketStatus={simple ? snapshot ? "Saved chart" : live ? "Price history" : "Last available candles" : undefined}
         timeKnown dec={2} symbol="XAU/USD" levels={levels}
         price={price} priceLive={live&&!snapshot} snapshot={snapshot}
         direction={dir} reference={!selected||selected.reference||selected.stage!=="ready"}

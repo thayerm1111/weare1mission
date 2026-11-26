@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+import { Info } from "lucide-react";
 import Link from "next/link";
 import { ProductIcon } from "../ProductIcon";
 
@@ -13,12 +17,14 @@ const apps = [
 ] as const;
 
 export function HomeApps() {
-  return <nav className="om-home-apps" aria-label="One Mission tools">
-    <h2>One Mission apps</h2>
-    <div className="om-home-app-grid">{apps.map(app => {
-      const content = <><ProductIcon kind={app.icon}/><span><b>{app.name}</b><small>{app.purpose}</small></span></>;
-      return app.icon === "atlas" ? <a key={app.name} href={app.href}>{content}</a> :
-        <Link key={app.name} href={app.href} className={app.name === "GenX FX" ? "om-app-fx" : undefined}>{content}</Link>;
+  const [guide, setGuide] = useState(false);
+  return <nav className="om-home-apps" id="om-home-apps" tabIndex={-1} aria-label="One Mission tools">
+    <header><h2>Apps</h2><button type="button" aria-label="App guide" aria-expanded={guide} aria-controls="om-app-grid"
+      title="What each app does" onClick={() => setGuide(open => !open)}><Info size={18} aria-hidden="true"/></button></header>
+    <div className="om-home-app-grid" id="om-app-grid" data-guide={guide || undefined}>{apps.map(app => {
+      const content = <><ProductIcon kind={app.icon}/><span><b>{app.name}</b>{guide && <small>{app.purpose}</small>}</span></>;
+      return app.icon === "atlas" ? <a key={app.name} href={app.href} aria-label={app.name + ", " + app.purpose}>{content}</a> :
+        <Link key={app.name} href={app.href} aria-label={app.name + ", " + app.purpose} className={app.name === "GenX FX" ? "om-app-fx" : undefined}>{content}</Link>;
     })}</div>
   </nav>;
 }

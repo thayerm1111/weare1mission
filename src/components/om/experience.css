@@ -32,7 +32,7 @@ html.om-shell{scroll-padding-block:68px max(96px,calc(86px + env(safe-area-inset
 .om-simple-detail-link{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 0;color:var(--om-ai);font-size:14px;font-weight:600}
 .om-simple-detail-link:focus-visible{outline:2px solid var(--om-ai);outline-offset:4px}
 .om-os[data-experience=simple] .om-os-footer{margin-top:24px}
-.om-os[data-experience=simple] .om-ch-ohlc{display:none}
+.om-os[data-experience=simple] .om-ch:not([data-simple-chart]) .om-ch-ohlc{display:none}
 .om-simple-atlas{padding:clamp(18px,3vw,32px);display:grid;gap:22px;overflow:hidden}
 .om-simple-atlas-header,.om-simple-market-summary,.om-simple-atlas-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .om-simple-atlas-header .om-live-brand h2{font-size:28px;line-height:1.15;letter-spacing:-.035em;font-weight:600}

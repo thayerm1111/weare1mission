@@ -48,7 +48,7 @@ function harness(file, exported, initial = {}, opts = {}) {
     '@/components/portal/SetupLock': { SetupLock: 'SetupLock', SetupTimer: 'SetupTimer' },
     '../simple/MarketStory': { ...require("../src/components/om/simple/MarketStory.tsx"), MarketStory: "MarketStory" },
     '@/lib/floor/marketIntelligence': require('../src/lib/floor/marketIntelligence.ts'),
-    './SimpleGenxRead': { SimpleGenxRead: 'SimpleGenxRead', SimpleGenxLevels: 'SimpleGenxLevels' },
+    './SimpleGenxRead': { ...require('../src/components/om/genx/SimpleGenxRead.tsx'), SimpleGenxLevels: 'SimpleGenxLevels' },
     './GenxFlow': { GenxFlow: 'GenxFlow', ConfirmHelp: 'ConfirmHelp' }, './GenFxFlow': { GenFxFlow: 'GenFxFlow' },
     '@/components/portal/floor/GenxFlow': { buildSteps: () => [] },
     '@/lib/atlas/open': { openAtlas: (request) => events.push(request) },
@@ -233,6 +233,7 @@ test('FX Simple and Advanced share real precision, candles and the same confirma
     assert.equal(simple.props.dec, PAIRS[pair].dec); assert.equal(simple.props.entry, props.response.genfx.entry);
     const chart = h.find((n) => n.type === 'OmChart')[0];
     assert.equal(chart.props.dec, PAIRS[pair].dec); assert.equal(chart.props.bars.length, 3); assert.equal(chart.props.snapshot, true); assert.equal(chart.props.priceLive, false);
+    assert.equal(chart.props.simpleView, true); assert.equal(chart.props.watchPrice, props.response.genfx.entry);
     assert.equal(chart.props.price, props.response.price); assert.match(chart.props.label, new RegExp(PAIRS[pair].name));
     const confirmation = h.find((n) => n.type === 'Confirm')[0], requests = h.requests.length;
     h.experience('advanced');
@@ -251,9 +252,9 @@ test('a saved FX read without candles never borrows the current pair feed as its
   const fresh = fxRead('GBPJPY'); await h.reply(h.requests[0], { symbol: 'GBPJPY', g: fresh.genfx, candles: fresh.candles, candlesTz: 'UTC', price: 215, asOf: fresh.asOf });
   assert.equal(h.find((n) => n.type === 'OmChart').length, 0);
   assert.match(text(h.value()), /original candles were not stored/);
-  const story = h.find((n) => n.type === 'SimpleGenxRead')[0];
-  assert.equal(story.props.snapshot, true);
-  assert.equal(story.props.bars.length, 0);
+  const story = h.find((n) => n.type === 'MarketStory')[0];
+  assert.equal(story.props.feed, 'recorded');
+  assert.equal(story.props.watchPrice, props.response.genfx.entry);
   assert.ok(text(h.value()).includes('Price at analysis ' + props.response.price.toFixed(3)));
   assert.equal(h.find((n) => n.type === 'SimpleGenxLevels')[0].props.entry, props.response.genfx.entry);
   assert.equal(h.find((n) => n.type === 'Confirm').length, 0, 'Saved analyses do not start a current-entry confirmation');

@@ -86,13 +86,13 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
           <button type="button" className="om-btn" onClick={scan} disabled={loading}>
             {loading && <Loader2 className="animate-spin" aria-hidden="true" />}{loading ? "Scanning…" : "Scan markets"}
           </button>
-          <p className="om-label">{CREDIT_COST.scan} credits a scan · {at ? <>last scan {when(at)}{now ? ` · ${ageText(new Date(at).toISOString(), now)}` : ""}</> : "no scan on this device yet"}</p>
+          <p className="om-label">{CREDIT_COST.scan} credits a scan{at ? <> · {isSimple && now ? "Scanned " + ageText(new Date(at).toISOString(), now) : "Last scan " + when(at)}</> : !isSimple && " · no scan on this device yet"}</p>
         </div>
       </header>
 
       {msg && <p className="om-flow-err" role="alert">{msg}{setups.length && at ? ` The list below is still the scan from ${when(at)}.` : ""}</p>}
       {old && !loading && (
-        <p className="om-pulse-old" role="status"><b>An earlier scan · {when(at!)}</b> <span className="om-label">{ageText(new Date(at!).toISOString(), now)}. It shows the markets as they were then, not what is tradable now. Scan markets for now.</span></p>
+        <p className="om-pulse-old" role="status"><b>An earlier scan · {when(at!)}</b> <span className="om-label">{isSimple ? "Scan again for current conditions." : <> {ageText(new Date(at!).toISOString(), now)}. It shows the markets as they were then, not what is tradable now. Scan markets for now.</>}</span></p>
       )}
 
       {hydrated && !loading && setups.length === 0 ? (
@@ -121,7 +121,7 @@ export function PulseHome({ setups, loading, asOf, msg, hydrated, scan, onDeepDi
                     <button type="button" onClick={() => pick(s.td)} aria-pressed={(isSimple || detailOpen) && current?.s.td === s.td} data-no-i18n translate="no">
                       <span className="om-pulse-mobile-rank">{isSimple ? s.dir === "LONG" ? <TrendingUp aria-label="Upward lean"/> : <TrendingDown aria-label="Downward lean"/> : String(rank).padStart(2, "0")}</span>
                       <span className="om-pulse-mobile-name"><b>{s.name}</b><small>{s.symbol}</small></span>
-                      <span className="om-pulse-mobile-lean" data-side={s.dir}><b>{isSimple ? s.dir === "LONG" ? "Buy watch" : "Sell watch" : s.dir === "LONG" ? "Long" : "Short"}</b><small>{isSimple ? s.total > 0 && <meter min={0} max={s.total} value={s.confirmed} aria-label={s.confirmed + " of " + s.total + " checks lined up"}/> : <>{s.confirmed} of {s.total}</>}</small></span>
+                      <span className="om-pulse-mobile-lean" data-side={s.dir}><b>{isSimple ? s.dir === "LONG" ? "Leans up" : "Leans down" : s.dir === "LONG" ? "Long" : "Short"}</b><small>{isSimple ? s.total > 0 && <meter min={0} max={s.total} value={s.confirmed} aria-label={s.confirmed + " of " + s.total + " checks lined up"}/> : <>{s.confirmed} of {s.total}</>}</small></span>
                       <ArrowUpRight width={16} height={16} aria-hidden="true" />
                     </button>
                   </li>

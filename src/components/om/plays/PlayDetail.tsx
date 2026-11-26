@@ -143,6 +143,7 @@ export function PlayDetail({ r, madeMs, checking, onCheck, updating, onUpdate, u
           a.kind==="idea"?"CONDITIONAL WATCH · CONFIRMATION NEEDED":"NO QUALIFIED ENTRY"}
         score={quality} scoreName="ENGINE QUALITY" facts={factList}/>}
       {chart.bars.length>0 ? <VisionChart
+          simpleView={isSimple} watchPrice={hasLevels && !t.resolved && !r.marketClosed ? s.entry : null}
           bars={chart.bars} timeKnown={chart.timeKnown} tfMs={chart.tfMs}
           timeframe={chart.tfLabel} symbol={r.symbol} dec={chart.dec}
           price={generationPrice} marketStatus={`Saved snapshot · ${priceLabel.toLowerCase()}`} priceLive={false} snapshot
