@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { marginRequirement, readAccountMetrics, readClosedOutcome, readOpeningFill, type NitrousBrokerReads, type NitrousClosedPosition } from "../nitrous/broker";
 import type { InstrumentSpec } from "../rapid/core/types";
-import type { PortContext } from "../rapid/exec/tradelockerPort";
+import { TradeLockerPort, type PortContext } from "../rapid/exec/tradelockerPort";
 
 const NOW = Date.parse("2026-11-25T14:00:00Z");
 const ctx: PortContext = { env: "demo", token: "never-used-test-token", accNum: "7", accountId: "account-1" };
@@ -199,4 +199,55 @@ test("opening recovery rejects nonterminal, missing, mismatched and ambiguous br
   assert.equal((await readOpeningFill(ctx, openingLookup, spec, withRows([opening()], true))).ok, false);
   assert.equal((await readOpeningFill(ctx, openingLookup, spec, withRows([opening(), opening({ filledQty: 0.03 })]))).ok, false);
   assert.equal((await readOpeningFill(ctx, { ...openingLookup, orderId: null, positionId: "position-1" }, spec, withRows([opening(), opening({ id: "additional-open" })]))).ok, false);
+});
+
+test("final execution rows settle a closed position with incomplete order history", async () => {
+  const fields = ["createdDate", "positionId", "price", "qty", "side", "id", "tradableInstrumentId"];
+  const row = [NOW - 1000, position.broker_position_id, 4206, position.original_qty, "sell", "exec-1", spec.tradableInstrumentId];
+  const reads = makeReads({
+    ...withRows([fill({ filledQty: null })]),
+    config: async () => ({ ok: true, data: { d: { ...config.d, filledOrdersConfig: columns(fields) } } }),
+    executions: async () => ({ ok: true, data: { rows: [row, row], hasMore: false } }),
+  });
+  const outcome = await readClosedOutcome(ctx, position, spec, "USD", reads);
+  assert.ok(outcome.ok);
+  assert.equal(outcome.exitPrice, 4206);
+  assert.equal(outcome.source, "calculated_gross");
+  assert.equal(outcome.feesVerified, false);
+  for (const patch of [
+    { executions: async () => ({ ok: true as const, data: { rows: [row], hasMore: true } }) },
+    { positions: async () => ({ ok: true as const, data: [["buy", position.broker_position_id, position.original_qty]] }) },
+    { executions: async () => ({ ok: true as const, data: { rows: [[...row.slice(0, 3), 0.01, ...row.slice(4)]], hasMore: false } }) },
+  ]) {
+    assert.equal((await readClosedOutcome(ctx, position, spec, "USD", { ...reads, ...patch })).ok, false);
+  }
+});
+
+
+test("linked stop and target are verified against the account's working orders", async t => {
+  const positionCols = columns(["id", "side", "qty", "stopLossId", "takeProfitId"]);
+  const orderCols = columns(["id", "positionId", "side", "qty", "type", "status", "stopPrice", "price"]);
+  const orders = [
+    ["511", "42", "sell", 0.05, "stop", "Working", 4195, 0],
+    ["512", "42", "sell", 0.05, "limit", "Working", 0, 4210],
+  ];
+  t.mock.method(globalThis, "fetch", async (input: string, options: RequestInit) => {
+    assert.equal(options.method, "GET");
+    const path = new URL(input).pathname;
+    if (path.endsWith("/trade/config")) return Response.json({ d: { positionsConfig: positionCols, ordersConfig: orderCols } });
+    if (path.endsWith("/positions")) return Response.json({ d: { positions: [["42", "buy", 0.05, "511", "512"]] } });
+    assert.ok(path.endsWith("/orders"));
+    return Response.json({ d: { orders } });
+  });
+  const port = new TradeLockerPort(ctx, true);
+  const verified = await port.positions();
+  assert.ok(verified.ok);
+  assert.equal(verified.rows[0].stopLoss, 4195);
+  assert.equal(verified.rows[0].takeProfit, 4210);
+  orders[0][1] = "another-position";
+  orders[1][3] = 0.01;
+  const mismatched = await port.positions();
+  assert.ok(mismatched.ok);
+  assert.equal(mismatched.rows[0].stopLoss, null);
+  assert.equal(mismatched.rows[0].takeProfit, null);
 });

@@ -130,7 +130,6 @@ export class TradeLockerPort implements BrokerPort {
     const needsOrders = this.readProtectionOrders && p.data.some(row =>
       ["stopLossId", "takeProfitId"].some(key => /^[1-9]\d*$/.test(linkedId(field(row, cols, [key])))));
     const orders = needsOrders ? await listOrders(this.ctx.env, this.ctx.token, this.ctx.accNum, this.ctx.accountId) : null;
-    if (orders && !orders.ok) return { ok: false, error: orders.error };
     const leg = (row: unknown, stop: boolean): number | null => {
       const direct = num(field(row, cols, stop ? ["stopLoss", "stopLossPrice", "sl"] : ["takeProfit", "takeProfitPrice", "tp"]));
       if (!this.readProtectionOrders || (direct != null && direct > 0)) return direct;
@@ -158,14 +157,26 @@ export class TradeLockerPort implements BrokerPort {
       const sideRaw = String(field(row, cols, ["side"]) ?? "").toLowerCase();
       const rawPnl = field(row, cols, ["unrealizedPl"]);
       const floating = typeof rawPnl === "number" || (typeof rawPnl === "string" && rawPnl.trim()) ? Number(rawPnl) : NaN;
+      const stopLoss = leg(row, true), takeProfit = leg(row, false);
+      const unreadable = (price: number | null, idKey: string, priceKeys: string[]) => {
+        if (!this.readProtectionOrders || (price != null && price > 0)) return false;
+        const link = field(row, cols, [idKey]);
+        if (link != null && String(link) !== "0" && String(link) !== "") {
+          // A failed read is inconclusive. A successful read that lacks a valid
+          // full-size protective order must still reach the existing risk checks.
+          return !orders?.ok;
+        }
+        return link === undefined && field(row, cols, priceKeys) === undefined;
+      };
       rows.push({
         positionId: String(id),
         strategyId: (field(row, cols, ["strategyId"]) as string) ?? null,
         side: sideRaw === "buy" || sideRaw === "sell" ? (sideRaw as Side) : null,
         qty: num(field(row, cols, ["qty", "quantity"])),
         entry: num(field(row, cols, ["avgPrice", "openPrice", "price"])),
-        stopLoss: leg(row, true),
-        takeProfit: leg(row, false),
+        stopLoss, takeProfit,
+        ...(unreadable(stopLoss, "stopLossId", ["stopLoss", "stopLossPrice", "sl"]) ? { stopReadUnknown: true } : {}),
+        ...(unreadable(takeProfit, "takeProfitId", ["takeProfit", "takeProfitPrice", "tp"]) ? { targetReadUnknown: true } : {}),
         ...(Number.isFinite(floating) ? { unrealizedPnl: floating } : {}),
       });
     }
@@ -187,3 +198,4 @@ export class TradeLockerPort implements BrokerPort {
     return r.ok ? { ok: true as const } : { ok: false as const, error: r.error };
   }
 }
+

@@ -79,7 +79,7 @@ export async function submitProtected(inp: ProtectedOrder): Promise<Submission> 
       return { state: "protected", reason: "Fill, quantity and native stop/target confirmed at the broker." };
     }
     // Never modify a position merely because its ID appeared in an acknowledgement.
-    if (positions.ok && inp.stillOwned() && lastRow?.strategyId === inp.strategyId && lastRow.side === inp.side && !amended &&
+    if (positions.ok && inp.stillOwned() && lastRow?.strategyId === inp.strategyId && lastRow.side === inp.side && !lastRow.stopReadUnknown && !lastRow.targetReadUnknown && !amended &&
       (lastRow.stopLoss == null || lastRow.stopLoss <= 0 || lastRow.takeProfit == null || lastRow.takeProfit <= 0)) {
       amended = true;
       const result = await inp.port.amend(positionId, { stopLoss: inp.stop, takeProfit: inp.target });
@@ -95,3 +95,4 @@ export async function submitProtected(inp: ProtectedOrder): Promise<Submission> 
   await inp.store.setState(inp.intentId, "protection_pending", { error: "Protection or filled risk could not be confirmed; exposure requires reconciliation." });
   return { state: "protection_pending", reason: "Protection or filled risk requires reconciliation. New entries are blocked." };
 }
+

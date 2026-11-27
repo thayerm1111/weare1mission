@@ -231,8 +231,40 @@ function storeFor(acct: Account, setup: Pick<Setup, "side" | "strategyVersion" |
   };
 }
 
+// A crash can occur after the verified position or intent was closed but before its
+// reservation was released. Replay only ledger bookkeeping, never a broker action.
+async function finishInterruptedSettlements(acct: Account, brokerRows: BrokerPosition[]) {
+  const db = admin();
+  const reservations = checked(await db.from("nitrous_risk_reservations").select("intent_key")
+    .eq("account_id", acct.id).in("state", ["held", "converted"]).order("id").limit(100)) as { intent_key: string }[];
+  if (!reservations?.length) return;
+
+  const intents = checked(await db.from("nitrous_intents").select("id,intent_key,broker_strategy_id,broker_position_id,side,state")
+    .eq("account_id", acct.id).in("intent_key", reservations.map(r => r.intent_key))) as Intent[];
+  if (!intents.length) return;
+  const closed = checked(await db.from("nitrous_positions").select("intent_id,broker_position_id,broker_strategy_id,side")
+    .eq("account_id", acct.id).in("intent_id", intents.map(i => i.id)).eq("status", "closed")
+    .eq("close_reason", "Broker closure reconciled").eq("current_qty", 0).gt("exit_price", 0)
+    .not("closed_at", "is", null).not("realised_pnl", "is", null)
+    .in("realised_pnl_source", ["broker_net", "calculated_gross"])) as Position[];
+  for (const p of closed) {
+    const i = intents.find(intent => intent.id === p.intent_id);
+    if (!i || !p.broker_position_id || !p.broker_strategy_id || i.side !== p.side || i.broker_strategy_id !== p.broker_strategy_id ||
+        (i.broker_position_id && i.broker_position_id !== p.broker_position_id) ||
+        brokerRows.some(live => live.positionId === p.broker_position_id)) continue;
+    if (i.state === "rejected" || i.state === "cancelled") continue;
+    if (i.state !== "closed") {
+      checked(await db.from("nitrous_intents").update({ state: "closed", error: null, updated_at: iso() })
+        .eq("account_id", acct.id).eq("id", i.id));
+    }
+    checked(await db.from("nitrous_risk_reservations").update({ state: "released", settled_at: iso() })
+      .eq("account_id", acct.id).eq("intent_key", i.intent_key).in("state", ["held", "converted"]));
+  }
+}
+
 async function reconcile(acct: Account, port: TradeLockerPort, ctx: PortContext, brokerRows: BrokerPosition[], spec: InstrumentSpec, currency: string | null): Promise<Position[]> {
   const db = admin();
+  await finishInterruptedSettlements(acct, brokerRows);
   const pending = checked(await db.from("nitrous_intents").select("*").eq("account_id", acct.id)
     .in("state", ["reserved", "submitting", "acknowledged", "partially_filled", "filled", "submission_unknown", "protection_pending", "cancel_requested"])) as Intent[];
   for (const intent of pending) {
@@ -303,7 +335,7 @@ async function reconcile(acct: Account, port: TradeLockerPort, ctx: PortContext,
       current_qty: 0, exit_price: outcome.exitPrice, realised_pnl: outcome.realisedPnl,
       realised_pnl_source: outcome.source, fees_verified: outcome.feesVerified,
       close_reason: "Broker closure reconciled", updated_at: iso() }).eq("id", p.id));
-    if (p.intent_id) await storeFor(acct, { side: p.side, strategyVersion: String(p.strategy_version), configVersion: String(p.config_version) }, p.broker_strategy_id).setState(p.intent_id, "closed");
+    if (p.intent_id) await storeFor(acct, { side: p.side, strategyVersion: String(p.strategy_version), configVersion: String(p.config_version) }, p.broker_strategy_id).setState(p.intent_id, "closed", { error: null });
   }
   return checked(await db.from("nitrous_positions").select("*").eq("account_id", acct.id).in("status", ["open", "closing", "orphan_review"])) as Position[];
 }
@@ -329,14 +361,56 @@ async function closeOnce(p: Position, port: TradeLockerPort, reason: string, hel
 }
 
 async function manage(acct: Account, rows: Position[], brokerRows: BrokerPosition[], port: TradeLockerPort, spec: InstrumentSpec, held: () => boolean) {
+  let blockReason: string | null = null;
   for (const p of rows) {
-    const live = brokerRows.find((r) => r.positionId === p.broker_position_id);
+    let live = brokerRows.find((r) => r.positionId === p.broker_position_id);
     if (!verifiedOwnedPosition(p, live) || !live || !held()) continue;
     if (p.close_requested_at) { await closeOnce(p, port, "Member requested close", held); continue; }
+    if (live.side !== p.side || !(Number(live.qty) > 0)) {
+      blockReason = "Waiting for TradeLocker to confirm the position side and quantity.";
+      continue;
+    }
     const d = p.side === "buy" ? 1 : -1;
-    const safe = Number(live.stopLoss) > 0 && d * (Number(live.stopLoss) - Number(p.initial_stop)) >= -(spec.tickSize ?? 0.01) && Number(live.qty) <= Number(p.original_qty) + 1e-8;
-    if (!safe || p.protection_state !== "protected") { await closeOnce(p, port, "Native protection or filled risk could not be verified", held); continue; }
-    checked(await admin().from("nitrous_positions").update({ current_stop: live.stopLoss, current_qty: live.qty, updated_at: iso() }).eq("id", p.id));
+    const tick = spec.tickSize ?? 0.01;
+    const safeSize = (r: BrokerPosition) => Number(r.qty) <= Number(p.original_qty) + 1e-8;
+    const safeStop = (r: BrokerPosition) => Number(r.stopLoss) > 0 &&
+      d * (Number(r.stopLoss) - Number(p.initial_stop)) >= -tick;
+    const targetMatches = (r: BrokerPosition) => Number(r.takeProfit) > 0 && Number(p.target) > 0 &&
+      Math.abs(Number(r.takeProfit) - Number(p.target)) <= tick * 1.1;
+    const wasProtected = p.protection_state === "protected" || p.protection_state === "removed";
+    if (wasProtected && safeSize(live) && safeStop(live) && !targetMatches(live)) {
+      // Linked orders and the position can change between the two broker reads.
+      const check = await port.positions();
+      const fresh = check.ok ? check.rows.find(r => r.positionId === p.broker_position_id) : undefined;
+      if (!fresh || !verifiedOwnedPosition(p, fresh) || fresh.side !== p.side || !(Number(fresh.qty) > 0) || !held()) {
+        blockReason = "Waiting for a fresh broker position and its protection.";
+        continue;
+      }
+      live = fresh;
+    }
+    if (wasProtected && safeSize(live) && live.stopReadUnknown) {
+      blockReason = "Waiting for TradeLocker to verify the linked stop order.";
+      continue;
+    }
+    if (!wasProtected || !safeSize(live) || !safeStop(live)) {
+      await closeOnce(p, port, "Native protection or filled risk could not be verified", held);
+      continue;
+    }
+    if (!targetMatches(live)) {
+      if (live.targetReadUnknown) {
+        blockReason = "Waiting for TradeLocker to verify the linked target order.";
+      } else {
+        if (p.protection_state !== "removed") {
+          checked(await admin().from("nitrous_positions").update({ protection_state: "removed", updated_at: iso() }).eq("id", p.id));
+          p.protection_state = "removed";
+        }
+        blockReason = "The broker target is missing or differs from the recorded target. The stop is in place.";
+      }
+      continue;
+    }
+    checked(await admin().from("nitrous_positions").update({ current_stop: live.stopLoss, current_qty: live.qty,
+      protection_state: "protected", updated_at: iso() }).eq("id", p.id));
+    p.protection_state = "protected";
     if (!p.management_enabled || p.breakeven_done || p.status !== "open") continue;
     const q = await port.quote(); if (!q.ok || Date.now() - q.quote.receivedAt > NITROUS_CONFIG.feed.maxQuoteAgeMs) continue;
     const price = executablePrice(q.quote, p.side, "exit"); if (price == null) continue;
@@ -351,6 +425,7 @@ async function manage(acct: Account, rows: Position[], brokerRows: BrokerPositio
     if (verifiedOwnedPosition(p, confirmed) && confirmed?.stopLoss != null && Math.abs(confirmed.stopLoss - stop) <= spec.tickSize! * 1.1)
       checked(await admin().from("nitrous_positions").update({ current_stop: confirmed.stopLoss, breakeven_done: true, breakeven_at: iso() }).eq("id", p.id));
   }
+  return blockReason;
 }
 
 async function riskRemaining(acct: Account, equity: number): Promise<number> {
@@ -512,7 +587,7 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
       equity: metrics.equity, equity_at: metrics.equity === null ? null : iso(), currency: metrics.currency } : {}), updated_at: iso() }).eq("id", acct.id));
   const rows = await reconcile(acct, port, ctx, positions.rows, contract.spec, metrics.ok ? metrics.currency : null);
   // Always protect already-owned positions, even when new entries or membership are paused.
-  await manage(acct, rows, positions.rows, port, contract.spec, held);
+  const protectionBlock = await manage(acct, rows, positions.rows, port, contract.spec, held);
   // Display-only telemetry: use exact ledger/broker identity. Failure cannot prevent protection.
   for (const row of rows) {
     if (!held()) break;
@@ -526,6 +601,7 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
     } catch { /* Best effort UI data; old observations age out. */ }
   }
   if (!await revokeNitrousAutomationWithoutAccess(admin(), acct)) throw new Error("Nitrous add-on access is required for new entries. Existing positions keep their protection.");
+  if (protectionBlock) throw new Error(protectionBlock);
   if (rows.some((p) => p.status === "orphan_review" || p.protection_state !== "protected")) throw new Error("A position needs broker reconciliation. New entries remain paused.");
   const known = new Set(rows.map((p) => p.broker_position_id));
   if (positions.rows.some((p) => p.strategyId?.startsWith("NITROUS:") && !known.has(p.positionId))) throw new Error("An untracked Nitrous position needs reconciliation. New entries are paused.");
@@ -608,3 +684,4 @@ export async function main() {
 }
 
 if (process.env.NITROUS_WORKER_AUTOSTART !== "0") void main().catch((e) => { console.error(`[nitrous] ${problem(e)}`); process.exit(1); });
+

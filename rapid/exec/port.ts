@@ -53,6 +53,10 @@ export type BrokerPosition = {
   entry: number | null;
   stopLoss: number | null;
   takeProfit: number | null;
+  /** A linked leg could not be read reliably in this snapshot. */
+  stopReadUnknown?: boolean;
+  targetReadUnknown?: boolean;
   /** Optional broker-reported floating P&L, never inferred from account equity. */
   unrealizedPnl?: number;
 };
+
