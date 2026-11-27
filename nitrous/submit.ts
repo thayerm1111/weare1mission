@@ -73,17 +73,17 @@ export async function submitProtected(inp: ProtectedOrder): Promise<Submission> 
   for (let attempt = 0; attempt < 12 && now() < deadline && inp.stillOwned(); attempt++) {
     const positions = await inp.port.positions();
     lastRow = positions.ok ? positions.rows.find((p) => p.positionId === positionId) : lastRow;
-    if (lastRow && protectionMatches(lastRow, inp)) {
+    if (positions.ok && lastRow && protectionMatches(lastRow, inp)) {
       await inp.store.openPosition(inp.intentId, { positionId, entry: lastRow.entry!, qty: lastRow.qty!, stop: lastRow.stopLoss!, target: lastRow.takeProfit, protectionState: "protected" });
       await inp.store.setState(inp.intentId, "protected", { fill_price: lastRow.entry, filled_qty: lastRow.qty });
       return { state: "protected", reason: "Fill, quantity and native stop/target confirmed at the broker." };
     }
     // Never modify a position merely because its ID appeared in an acknowledgement.
-    if (inp.stillOwned() && lastRow?.strategyId === inp.strategyId && lastRow.side === inp.side && !amended &&
+    if (positions.ok && inp.stillOwned() && lastRow?.strategyId === inp.strategyId && lastRow.side === inp.side && !amended &&
       (lastRow.stopLoss == null || lastRow.stopLoss <= 0 || lastRow.takeProfit == null || lastRow.takeProfit <= 0)) {
       amended = true;
       const result = await inp.port.amend(positionId, { stopLoss: inp.stop, takeProfit: inp.target });
-      await inp.store.recordBrokerEvent(inp.intentId, { kind: "attach_protection", ok: result.ok, positionId, uncertain: !result.ok && result.uncertain });
+      await inp.store.recordBrokerEvent(inp.intentId, { kind: "attach_protection", ok: result.ok, positionId, error: result.ok ? undefined : result.error, uncertain: !result.ok && result.uncertain });
     }
     await wait(250);
   }

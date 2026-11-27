@@ -80,7 +80,7 @@ async function portFor(acct: Account) {
   const cached = ports.get(acct.id);
   if (cached?.token === token.token) return cached;
   const ctx: PortContext = { env: acct.environment, token: token.token, accountId: acct.broker_account_id, accNum: acct.acc_num, preferredSymbol: "XAUUSD" };
-  const next = { token: token.token, ctx, port: new TradeLockerPort(ctx) };
+  const next = { token: token.token, ctx, port: new TradeLockerPort(ctx, true) };
   ports.set(acct.id, next);
   return next;
 }
@@ -295,8 +295,8 @@ async function reconcile(acct: Account, port: TradeLockerPort, ctx: PortContext,
     }
     const outcome = await readClosedOutcome(ctx, { broker_position_id: p.broker_position_id, side: p.side, entry: Number(p.entry), original_qty: Number(p.original_qty), opened_at: p.opened_at }, spec, currency);
     if (!outcome.ok) {
-      checked(await db.from("nitrous_positions").update({ status: "orphan_review", close_reason: "Awaiting verified broker closing evidence", updated_at: iso() }).eq("id", p.id));
-      if (p.intent_id) checked(await db.from("nitrous_intents").update({ state: "protection_pending", error: "Awaiting verified broker closing evidence", updated_at: iso() }).eq("id", p.intent_id));
+      checked(await db.from("nitrous_positions").update({ status: "orphan_review", close_reason: outcome.error, updated_at: iso() }).eq("id", p.id));
+      if (p.intent_id) checked(await db.from("nitrous_intents").update({ state: "protection_pending", error: outcome.error, updated_at: iso() }).eq("id", p.intent_id));
       continue;
     }
     checked(await db.from("nitrous_positions").update({ status: "closed", closed_at: outcome.closedAt,

@@ -42,7 +42,7 @@ const defaultReads: NitrousBrokerReads = {
     const query = new URLSearchParams({ from: String(Math.floor(from)), tradableInstrumentId: instrumentId });
     const r = await tlFetch(c.env, `/trade/accounts/${encodeURIComponent(c.accountId)}/ordersHistory?${query}`, { accessToken: c.token, accNum: c.accNum, priority: "normal" });
     if (r.status < 200 || r.status >= 300 || brokerError(r.json)) return error("Broker closing history unavailable.");
-    const rows = readCollection(r.json, "ordersHistory");
+    const rows = readCollection(r.json, "ordersHistory", "orders");
     if (!rows.ok) return rows;
     const more = object(unwrap(r.json)).hasMore;
     if (more !== undefined && typeof more !== "boolean") return error("Broker history completeness is unknown.");

@@ -3,7 +3,7 @@ import type { BrokerPort, BrokerPosition } from "./port";
 import { columnMap, field, type TLEnv } from "../broker/http";
 import {
   cancelOrder, closePosition, createOrder, getAccountState, getConfig, getInstrumentDetails,
-  getQuote, listInstruments, listOrdersHistory, listPositions, modifyPosition, positionForOrder,
+  getQuote, listInstruments, listOrders, listOrdersHistory, listPositions, modifyPosition, positionForOrder,
   resolveGold, toInstrumentSpec,
 } from "../broker/tradelocker";
 import { applyPublishedRateLimits } from "../broker/http";
@@ -32,7 +32,7 @@ export class TradeLockerPort implements BrokerPort {
   private cols: { positions: Record<string, number>; orders: Record<string, number>; history: Record<string, number> } | null = null;
   private cachedSpec: { spec: InstrumentSpec; missing: string[] } | null = null;
 
-  constructor(private readonly ctx: PortContext) {}
+  constructor(private readonly ctx: PortContext, private readonly readProtectionOrders = false) {}
 
   private async ensureConfig(): Promise<void> {
     if (this.config) return;
@@ -126,6 +126,31 @@ export class TradeLockerPort implements BrokerPort {
     if (!p.ok) return { ok: false, error: p.error };
     const cols = this.cols!.positions;
     const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const linkedId = (value: unknown) => typeof value === "string" || Number.isSafeInteger(value) ? String(value) : "";
+    const needsOrders = this.readProtectionOrders && p.data.some(row =>
+      ["stopLossId", "takeProfitId"].some(key => /^[1-9]\d*$/.test(linkedId(field(row, cols, [key])))));
+    const orders = needsOrders ? await listOrders(this.ctx.env, this.ctx.token, this.ctx.accNum, this.ctx.accountId) : null;
+    if (orders && !orders.ok) return { ok: false, error: orders.error };
+    const leg = (row: unknown, stop: boolean): number | null => {
+      const direct = num(field(row, cols, stop ? ["stopLoss", "stopLossPrice", "sl"] : ["takeProfit", "takeProfitPrice", "tp"]));
+      if (!this.readProtectionOrders || (direct != null && direct > 0)) return direct;
+      const id = linkedId(field(row, cols, [stop ? "stopLossId" : "takeProfitId"]));
+      if (!orders?.ok || !/^[1-9]\d*$/.test(id)) return null;
+      const oc = this.cols!.orders;
+      const matches = orders.data.filter(o => linkedId(field(o, oc, ["id", "orderId"])) === id);
+      if (matches.length !== 1) return null;
+      const get = (key: string) => field(matches[0], oc, [key]);
+      const position = linkedId(get("positionId"));
+      const side = String(field(row, cols, ["side"])).toLowerCase();
+      const expectedSide = side === "buy" ? "sell" : side === "sell" ? "buy" : "";
+      if (position && position !== "0" && position !== linkedId(field(row, cols, ["id", "positionId"]))) return null;
+      if (String(get("type")).toLowerCase() !== (stop ? "stop" : "limit") ||
+          String(get("side")).toLowerCase() !== expectedSide ||
+          !["new", "working", "open", "pending", "accepted"].includes(String(get("status")).toLowerCase()) ||
+          Number(get("qty")) !== Number(field(row, cols, ["qty", "quantity"]))) return null;
+      const price = num(get(stop ? "stopPrice" : "price"));
+      return price != null && price > 0 ? price : null;
+    };
     const rows: BrokerPosition[] = [];
     for (const row of p.data) {
       const id = field(row, cols, ["id", "positionId"]);
@@ -139,8 +164,8 @@ export class TradeLockerPort implements BrokerPort {
         side: sideRaw === "buy" || sideRaw === "sell" ? (sideRaw as Side) : null,
         qty: num(field(row, cols, ["qty", "quantity"])),
         entry: num(field(row, cols, ["avgPrice", "openPrice", "price"])),
-        stopLoss: num(field(row, cols, ["stopLoss", "stopLossPrice", "sl"])),
-        takeProfit: num(field(row, cols, ["takeProfit", "takeProfitPrice", "tp"])),
+        stopLoss: leg(row, true),
+        takeProfit: leg(row, false),
         ...(Number.isFinite(floating) ? { unrealizedPnl: floating } : {}),
       });
     }
