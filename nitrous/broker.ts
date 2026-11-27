@@ -12,6 +12,7 @@ export type NitrousBrokerReads = {
   accounts(ctx: PortContext): Promise<ReadResult<unknown[]>>;
   positions(ctx: PortContext): Promise<ReadResult<unknown[]>>;
   history(ctx: PortContext, from: number, instrumentId: string): Promise<ReadResult<History>>;
+  executions?(ctx: PortContext): Promise<ReadResult<History>>;
   now(): number;
 };
 
@@ -47,6 +48,14 @@ const defaultReads: NitrousBrokerReads = {
     const more = object(unwrap(r.json)).hasMore;
     if (more !== undefined && typeof more !== "boolean") return error("Broker history completeness is unknown.");
     return { ok: true, data: { rows: rows.data, hasMore: more === true } };
+  },
+  async executions(c) {
+    const r = await tlFetch(c.env, `/trade/accounts/${encodeURIComponent(c.accountId)}/executions`, { accessToken: c.token, accNum: c.accNum, priority: "normal" });
+    if (r.status < 200 || r.status >= 300 || brokerError(r.json)) return error("Broker executions unavailable.");
+    const rows = readCollection(r.json, "executions");
+    if (!rows.ok) return rows;
+    const more = object(unwrap(r.json)).hasMore;
+    return { ok: true, data: { rows: rows.data, hasMore: more !== undefined && more !== false } };
   },
   now: Date.now,
 };
@@ -155,6 +164,29 @@ export async function readOpeningFill(ctx: PortContext, lookup: OpeningFillLooku
 
 /** No price touch, absent position, requested order price, or generic `profit` is a realised result. */
 export async function readClosedOutcome(ctx: PortContext, position: NitrousClosedPosition, spec: InstrumentSpec, accountCurrency: string | null, reads: NitrousBrokerReads = defaultReads): Promise<ClosedOutcome> {
+  const outcome = await readClosedOrders(ctx, position, spec, accountCurrency, reads);
+  if (outcome.ok || !reads.executions) return outcome;
+  // Executions are individual fills. Reuse the same position, time, side and full-quantity checks.
+  // Never combine executions with order-history rows or count the same fill twice.
+  try {
+    const execs = await reads.executions(ctx);
+    if (!execs.ok || execs.data.hasMore) return outcome;
+    const config = await reads.config(ctx);
+    if (!config.ok) return outcome;
+    const cols = columnMap(config.data, "filledOrdersConfig");
+    const rows = execs.data.rows.map(row => {
+      const get = (name: string) => field(row, cols, [name]);
+      return { id: get("id"), positionId: get("positionId"), tradableInstrumentId: get("tradableInstrumentId"),
+        side: get("side"), filledQty: get("qty"), avgPrice: get("price"), executedAt: get("createdDate"), status: "filled" };
+    });
+    const verified = await readClosedOrders(ctx, position, spec, accountCurrency, {
+      ...reads, config: async () => config, history: async () => ({ ok: true, data: { rows, hasMore: false } }),
+    });
+    return verified.ok ? verified : error(`${outcome.error} Executions: ${verified.error}`);
+  } catch { return outcome; }
+}
+
+async function readClosedOrders(ctx: PortContext, position: NitrousClosedPosition, spec: InstrumentSpec, accountCurrency: string | null, reads: NitrousBrokerReads): Promise<ClosedOutcome> {
   const openedAt = timestamp(position.opened_at);
   if (!str(position.broker_position_id) || !["buy", "sell"].includes(position.side) || !positive(position.entry) || !positive(position.original_qty) || openedAt == null || !str(spec.tradableInstrumentId)) return error("Opening fill evidence is incomplete.");
   try {
@@ -181,7 +213,7 @@ export async function readClosedOutcome(ctx: PortContext, position: NitrousClose
       if (side !== expectedSide) continue;
       const filledQty = number(field(row, cols, ["filledQty", "filledQuantity"]));
       const status = str(field(row, cols, ["status"]))?.toLowerCase();
-      if (filledQty === 0 && ["rejected", "cancelled", "canceled"].includes(status ?? "")) continue;
+      if (filledQty === 0 && ["rejected", "refused", "unplaced", "removed", "cancelled", "canceled"].includes(status ?? "")) continue;
       if (filledQty == null || filledQty <= 0 || !["filled", "cancelled", "canceled"].includes(status ?? "")) return error("Broker executed closing quantity is unconfirmed.");
       const id = str(field(row, cols, ["id", "orderId"]));
       const instrument = str(field(row, cols, ["tradableInstrumentId"]));
