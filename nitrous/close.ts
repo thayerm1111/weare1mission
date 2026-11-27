@@ -10,6 +10,9 @@ export type CloseRequest = {
   held(): boolean;
   /** Revalidate the exact ledger identity and broker ownership; never infer ownership from a tag alone. */
   approved?(): Promise<boolean>;
+  /** For a previously protected trade, confirm the same hazard twice before recording a close.
+   * A recovering position must not inherit a queued request after a process restart. */
+  verifyBothBeforeClaim?: boolean;
   /** Atomically persist the dispatch claim before any broker call. False means someone already claimed it. */
   claim(): Promise<boolean>;
   /** A failed finish MUST leave the durable claim intact, including after a broker timeout. */
@@ -25,6 +28,7 @@ export async function requestCloseOnce(input: CloseRequest): Promise<CloseAttemp
     catch { return false; }
   };
   if (!input.positionId || !await allowed()) return { state: "skipped", reason: "Position ownership or approval is not current." };
+  if (input.verifyBothBeforeClaim && !await allowed()) return { state: "skipped", reason: "Fresh broker evidence did not confirm the same protection breach." };
   try {
     if (!await input.claim()) return { state: "skipped", reason: "Close already claimed or no longer eligible." };
   } catch { return { state: "skipped", reason: "Close claim could not be persisted." }; }
@@ -32,7 +36,7 @@ export async function requestCloseOnce(input: CloseRequest): Promise<CloseAttemp
     try { await input.finish(result); return { ...result, persisted: true }; }
     catch { return { ...result, persisted: false }; }
   };
-  if (!await allowed()) {
+  if (!(input.verifyBothBeforeClaim ? input.held() : await allowed())) {
     // Known unsent. The store may release THIS claim for the next owner; no HTTP call occurred.
     return finish({ state: "cancelled", error: "Close was not dispatched because ownership or approval changed." });
   }

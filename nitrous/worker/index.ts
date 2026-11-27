@@ -27,6 +27,7 @@ import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequireme
 import { createLiveActivationNotifier } from "../live-activation";
 import { protectionIssue, submitProtected } from "../submit";
 import { requestCloseOnce } from "../close";
+import { ongoingHazard, type OngoingHazard } from "../ongoing-protection";
 import { advancePublicSetups, publicSetupTerminal } from "../public-events";
 import { hasNitrousAddonAccess, revokeNitrousAutomationWithoutAccess } from "../access";
 import { createWaitingDiagnostics, noSetupReason, type WaitingDecision } from "../waiting-diagnostics";
@@ -342,27 +343,60 @@ async function reconcile(acct: Account, port: TradeLockerPort, ctx: PortContext,
   return checked(await db.from("nitrous_positions").select("*").eq("account_id", acct.id).in("status", ["open", "closing", "orphan_review"])) as Position[];
 }
 
-async function closeOnce(p: Position, port: TradeLockerPort, reason: string, held: () => boolean) {
+type OngoingClose = { hazard: OngoingHazard; tick: number; initial: BrokerPosition };
+
+async function closeOnce(p: Position, port: TradeLockerPort, reason: string, held: () => boolean, ongoing?: OngoingClose) {
   if (!held() || ["dispatching", "acknowledged", "uncertain", "rejected"].includes(String(p.close_request_state))) return;
   const db = admin();
+  let claimAt: string | null = null;
+  const observations: { qty: number | null; stop: number | null; stopReadUnknown: boolean; observed: boolean }[] = [];
+  const record = (row?: BrokerPosition) => observations.push({ qty: row?.qty ?? null, stop: row?.stopLoss ?? null,
+    stopReadUnknown: row?.stopReadUnknown === true, observed: Boolean(row) });
+  if (ongoing) record(ongoing.initial);
+
+  const claim = async () => {
+    const at = iso();
+    let update = db.from("nitrous_positions").update({ close_requested_at: p.close_requested_at ?? at,
+      close_dispatched_at: at, close_request_state: "dispatching", close_reason: reason, status: "closing", updated_at: at })
+      .eq("id", p.id).eq("broker_strategy_id", p.broker_strategy_id).neq("status", "closed").is("close_dispatched_at", null);
+    // A member may request a close while the worker is checking broker protection.
+    if (p.close_requested_at == null) update = update.is("close_requested_at", null);
+    if (ongoing) update = update.eq("status", p.status).in("protection_state", ["protected", "removed"])
+      .eq("side", p.side).eq("original_qty", p.original_qty).eq("initial_stop", p.initial_stop);
+    const claimed = checked(await update.select("id"));
+    if (!claimed?.length) return false;
+    claimAt = at;
+    return true;
+  };
+
   const result = await requestCloseOnce({ positionId: p.broker_position_id, held, port,
-    approved: async () => { const positions = await port.positions(); return positions.ok && verifiedOwnedPosition(p, positions.rows.find((r) => r.positionId === p.broker_position_id)); },
-    claim: async () => {
-      const claimed = checked(await db.from("nitrous_positions").update({ close_requested_at: p.close_requested_at ?? iso(),
-        close_dispatched_at: iso(), close_request_state: "dispatching", close_reason: reason, status: "closing", updated_at: iso() })
-        .eq("id", p.id).eq("broker_strategy_id", p.broker_strategy_id).neq("status", "closed").is("close_dispatched_at", null).select("id"));
-      return Boolean(claimed?.length);
+    approved: async () => {
+      const positions = await port.positions();
+      const live = positions.ok ? positions.rows.find(r => r.positionId === p.broker_position_id) : undefined;
+      if (!ongoing) return verifiedOwnedPosition(p, live);
+      record(live);
+      return ongoingHazard(p, live, ongoing.tick) === ongoing.hazard;
     },
+    verifyBothBeforeClaim: Boolean(ongoing),
+    claim,
     finish: async (r) => {
-      checked(await db.from("nitrous_positions").update({ close_request_state: r.state === "cancelled" ? "requested" : r.state,
-        close_request_error: r.error ? (r.state === "uncertain" ? "Broker close outcome unknown. Awaiting reconciliation." : "Broker close was not accepted. Review this position before retrying.") : null,
+      if (!claimAt) return; // No broker dispatch was possible; no claim is ours to release.
+      const undoAutomatic = r.state === "cancelled" && p.close_requested_at == null;
+      checked(await db.from("nitrous_positions").update({ close_request_state: r.state === "cancelled" ? (undoAutomatic ? null : "requested") : r.state,
+        close_request_error: undoAutomatic ? null : r.error ? (r.state === "uncertain" ? "Broker close outcome unknown. Awaiting reconciliation." : "Broker close was not accepted. Review this position before retrying.") : null,
         updated_at: iso(), ...(r.state === "cancelled" ? { close_dispatched_at: null } : {}),
-        ...(r.state === "rejected" ? { status: "open", close_requested_at: null, close_dispatched_at: null } : {}) }).eq("id", p.id).eq("close_request_state", "dispatching"));
+        ...(undoAutomatic ? { status: p.status, close_requested_at: null, close_reason: p.close_reason } : {}),
+        ...(r.state === "rejected" ? { status: "open", close_requested_at: null, close_dispatched_at: null } : {}) })
+        .eq("id", p.id).eq("close_request_state", "dispatching").eq("close_dispatched_at", claimAt));
     } });
-  await journal({ accountId: p.account_id, intentId: p.intent_id, stage: "manage", code: "close_requested", decision: result.state, reason });
+  const unsent = result.state === "skipped" || result.state === "cancelled";
+  await journal({ accountId: p.account_id, intentId: p.intent_id, stage: "manage",
+    code: ongoing && unsent ? "protective_close_withheld" : "close_requested", decision: result.state,
+    reason: ongoing && result.state === "skipped" ? result.reason : reason,
+    ...(ongoing ? { evidence: { hazard: ongoing.hazard, originalQty: p.original_qty, initialStop: p.initial_stop, observations } } : {}) });
 }
 
-async function manage(acct: Account, rows: Position[], brokerRows: BrokerPosition[], port: TradeLockerPort, spec: InstrumentSpec, held: () => boolean) {
+export async function manage(acct: Account, rows: Position[], brokerRows: BrokerPosition[], port: TradeLockerPort, spec: InstrumentSpec, held: () => boolean) {
   let blockReason: string | null = null;
   for (const p of rows) {
     let live = brokerRows.find((r) => r.positionId === p.broker_position_id);
@@ -394,8 +428,23 @@ async function manage(acct: Account, rows: Position[], brokerRows: BrokerPositio
       blockReason = "Waiting for TradeLocker to verify the linked stop order.";
       continue;
     }
-    if (!wasProtected || !safeSize(live) || !safeStop(live)) {
-      await closeOnce(p, port, "Native protection or filled risk could not be verified", held);
+    if (!wasProtected) {
+      await closeOnce(p, port, "Initial protection or filled risk could not be verified", held);
+      continue;
+    }
+    const hazard = ongoingHazard(p, live, tick);
+    if (hazard) {
+      const reasons: Record<OngoingHazard, string> = {
+        oversize: "Broker quantity exceeds the original protected quantity.",
+        missing_stop: "Broker stop is missing from the protected position.",
+        weaker_stop: "Broker stop is weaker than the original protective stop.",
+      };
+      await closeOnce(p, port, reasons[hazard], held, { hazard, tick, initial: live });
+      blockReason = "Verifying broker protection before resuming position management.";
+      continue;
+    }
+    if (!safeSize(live) || !safeStop(live)) {
+      blockReason = "Waiting for TradeLocker to verify position size and stop price.";
       continue;
     }
     if (!targetMatches(live)) {
