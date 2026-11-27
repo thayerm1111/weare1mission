@@ -20,6 +20,12 @@ export type NitrousTelegramEvent = {
   target: number;
 };
 
+/** Public confirmation of a broker-observed live fill. setupId is the shared strategy opportunity. */
+export type NitrousActivationEvent = Pick<NitrousTelegramEvent, "setupId" | "side" | "occurredAt"> & {
+  kind: "activated";
+};
+export type NitrousChannelEvent = NitrousTelegramEvent | NitrousActivationEvent;
+
 export type NitrousTelegramConfig = {
   token: string | null;
   channelId: string | null;
@@ -36,7 +42,7 @@ export type NitrousTelegramDelivery = {
 
 export interface NitrousTelegramDeliveryStore {
   /** A durable unique insert, committed before the first HTTP request. */
-  claim(key: string, event: NitrousTelegramEvent, channelId: string): Promise<boolean>;
+  claim(key: string, event: NitrousChannelEvent, channelId: string): Promise<boolean>;
   finish(key: string, result: NitrousTelegramDelivery): Promise<void>;
 }
 
@@ -80,12 +86,14 @@ export function normalizeNitrousChannelUrl(value: unknown): string | null {
 }
 
 /** Safe to show as a reference, never a broker order or customer identifier. */
-export function nitrousTelegramEventKey(channelId: string, event: NitrousTelegramEvent): string {
+export function nitrousTelegramEventKey(channelId: string, event: NitrousChannelEvent): string {
   return createHash("sha256").update(`${channelId}|${event.setupId}|${event.kind}`).digest("hex");
 }
 
-export function validNitrousTelegramEvent(event: NitrousTelegramEvent): boolean {
-  if (!event || !/^[A-Za-z0-9_.:-]{1,180}$/.test(event.setupId) || !KINDS.includes(event.kind)) return false;
+export function validNitrousTelegramEvent(event: NitrousChannelEvent): boolean {
+  if (!event || typeof event.setupId !== "string" || !/^[A-Za-z0-9_.:-]{1,180}$/.test(event.setupId)) return false;
+  if (event.kind === "activated") return ["buy", "sell"].includes(event.side) && Number.isFinite(Date.parse(event.occurredAt));
+  if (!KINDS.includes(event.kind)) return false;
   if (!Object.prototype.hasOwnProperty.call(FAMILY, event.family) || !Object.prototype.hasOwnProperty.call(PROFILE, event.profile) || !["buy", "sell"].includes(event.side)) return false;
   if (![event.entryLow, event.entryHigh, event.stop, event.target].every(finitePositive) || event.entryLow > event.entryHigh) return false;
   if (!Number.isFinite(Date.parse(event.occurredAt)) || !Number.isFinite(Date.parse(event.expiresAt))) return false;
@@ -94,8 +102,13 @@ export function validNitrousTelegramEvent(event: NitrousTelegramEvent): boolean 
     : event.stop > event.entryHigh && event.target < event.entryLow;
 }
 
-export function formatNitrousTelegramEvent(event: NitrousTelegramEvent): string {
+export function formatNitrousTelegramEvent(event: NitrousChannelEvent): string {
   if (!validNitrousTelegramEvent(event)) throw new Error("invalid_nitrous_telegram_event");
+  if (event.kind === "activated") return [
+    "<b>⚡ Nitrous activated</b>",
+    `XAU/USD · ${event.side === "buy" ? "Buy" : "Sell"}`,
+    "Trade live on TradeLocker.",
+  ].join("\n");
   const entry = event.entryLow === event.entryHigh ? event.entryLow.toFixed(2) : `${event.entryLow.toFixed(2)} – ${event.entryHigh.toFixed(2)}`;
   const reference = createHash("sha256").update(event.setupId).digest("hex").slice(0, 10).toUpperCase();
   const lifecycle = event.kind === "setup"
@@ -184,7 +197,7 @@ export async function verifyNitrousTelegramChannel(input: {
  * already have posted, so unresolved/refused deliveries require explicit operator review.
  */
 export async function sendNitrousTelegramEvent(input: {
-  config: NitrousTelegramConfig; event: NitrousTelegramEvent; store: NitrousTelegramDeliveryStore;
+  config: NitrousTelegramConfig; event: NitrousChannelEvent; store: NitrousTelegramDeliveryStore;
   fetcher?: Fetcher; now?: number;
 }): Promise<NitrousTelegramResult> {
   const { config, event, store } = input;
@@ -197,6 +210,7 @@ export async function sendNitrousTelegramEvent(input: {
   if ((event.kind === "setup" || event.kind === "triggered") && (Date.parse(event.expiresAt) <= now || now - Date.parse(event.occurredAt) > 300_000)) {
     return { ok: false, state: "expired" };
   }
+  if (event.kind === "activated" && now - Date.parse(event.occurredAt) > 60_000) return { ok: false, state: "expired" };
   const key = nitrousTelegramEventKey(config.channelId, event);
   try { if (!await store.claim(key, event, config.channelId)) return { ok: false, state: "duplicate" }; }
   catch { return { ok: false, state: "store_unavailable" }; }
@@ -234,3 +248,4 @@ export async function sendNitrousTelegramTest(config: NitrousTelegramConfig, exp
   return reply.unknown ? { state: "unknown", code: "delivery_unknown" }
     : { state: "refused", code: `telegram_${Number(reply.envelope?.error_code || reply.status) || "refused"}` };
 }
+

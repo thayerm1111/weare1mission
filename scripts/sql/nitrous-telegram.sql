@@ -19,7 +19,7 @@ create table if not exists public.nitrous_telegram_settings (
 create table if not exists public.nitrous_telegram_deliveries (
   event_key text primary key,
   setup_id text not null,
-  event_kind text not null check (event_kind in ('setup','triggered','expired','invalidated','target_observed','stop_observed')),
+  event_kind text not null,
   channel_id text not null,
   state text not null check (state in ('sending','sent','refused','unknown')),
   message_id bigint,
@@ -27,6 +27,11 @@ create table if not exists public.nitrous_telegram_deliveries (
   created_at timestamptz not null default now(),
   resolved_at timestamptz
 );
+alter table public.nitrous_telegram_deliveries
+  drop constraint if exists nitrous_telegram_deliveries_event_kind_check,
+  add constraint nitrous_telegram_deliveries_event_kind_check check (event_kind in (
+    'setup','triggered','expired','invalidated','target_observed','stop_observed','activated'
+  ));
 create index if not exists nitrous_telegram_delivery_state_time on public.nitrous_telegram_deliveries (state, created_at desc);
 
 alter table public.nitrous_telegram_settings enable row level security;
@@ -37,3 +42,4 @@ grant select, insert, update, delete on public.nitrous_telegram_settings to serv
 grant select, insert, update, delete on public.nitrous_telegram_deliveries to service_role;
 
 insert into public.nitrous_telegram_settings (id) values (1) on conflict (id) do nothing;
+

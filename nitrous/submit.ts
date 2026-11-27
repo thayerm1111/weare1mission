@@ -7,6 +7,7 @@ export type ProtectedOrder = {
   strategyId: string; tick: number; riskBudget: number; valuePerPricePerLot: number;
   /** Broker IDs observed before this order, persisted with its intent before dispatch. */
   preexistingPositionIds: readonly string[];
+  onLivePosition?: (row: BrokerPosition, observedAt: number) => void;
   commissionPerLot: number; exitAllowance: number; protectionDeadlineMs: number;
   approved: () => Promise<boolean>; stillOwned: () => boolean;
   /** Persist a close claim before dispatch; shared with member-requested and risk closes. */
@@ -70,9 +71,16 @@ export async function submitProtected(inp: ProtectedOrder): Promise<Submission> 
   const deadline = now() + inp.protectionDeadlineMs;
   let lastRow: BrokerPosition | undefined;
   let amended = false;
+  let observed = false;
   for (let attempt = 0; attempt < 12 && now() < deadline && inp.stillOwned(); attempt++) {
+    const observedAt = now();
     const positions = await inp.port.positions();
     lastRow = positions.ok ? positions.rows.find((p) => p.positionId === positionId) : lastRow;
+    if (!observed && positions.ok && lastRow?.strategyId === inp.strategyId && lastRow.side === inp.side &&
+        Number.isFinite(lastRow.entry) && Number(lastRow.entry) > 0 && Number.isFinite(lastRow.qty) && Number(lastRow.qty) > 0) {
+      observed = true;
+      try { inp.onLivePosition?.(lastRow, observedAt); } catch { /* Notifications cannot interrupt protection. */ }
+    }
     if (positions.ok && lastRow && protectionMatches(lastRow, inp)) {
       await inp.store.openPosition(inp.intentId, { positionId, entry: lastRow.entry!, qty: lastRow.qty!, stop: lastRow.stopLoss!, target: lastRow.takeProfit, protectionState: "protected" });
       await inp.store.setState(inp.intentId, "protected", { fill_price: lastRow.entry, filled_qty: lastRow.qty });
@@ -95,4 +103,5 @@ export async function submitProtected(inp: ProtectedOrder): Promise<Submission> 
   await inp.store.setState(inp.intentId, "protection_pending", { error: "Protection or filled risk could not be confirmed; exposure requires reconciliation." });
   return { state: "protection_pending", reason: "Protection or filled risk requires reconciliation. New entries are blocked." };
 }
+
 

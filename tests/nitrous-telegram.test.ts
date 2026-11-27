@@ -55,6 +55,25 @@ test("public messages whitelist setup evidence and distinguish price observation
   assert.match(formatNitrousTelegramEvent(event({ kind: "triggered" })), /not confirmation of an account fill/);
 });
 
+test("one broker activation per opportunity reaches the channel with only the public trade direction", async () => {
+  const store = new MemoryDeliveryStore();
+  const live = { kind: "activated" as const, setupId: event().setupId, side: "sell" as const,
+    occurredAt: new Date(NOW).toISOString(), accountId: "private-account", lots: 10.52 };
+  const posts: string[] = [];
+  const fetcher: typeof fetch = async (_url, init) => {
+    posts.push(JSON.parse(String(init?.body)).text);
+    return response({ ok: true, result: { message_id: posts.length } });
+  };
+  const input = { config, store, now: NOW, fetcher };
+  assert.equal((await sendNitrousTelegramEvent({ ...input, event: event({ kind: "triggered" }) })).state, "sent");
+  const results = await Promise.all([live, live].map(event => sendNitrousTelegramEvent({ ...input, event })));
+  assert.deepEqual(results.map(r => r.state).sort(), ["duplicate", "sent"]);
+  assert.equal(posts.length, 2);
+  assert.equal(posts[1], "<b>⚡ Nitrous activated</b>\nXAU/USD · Sell\nTrade live on TradeLocker.");
+  assert.equal((await sendNitrousTelegramEvent({ ...input, event: { ...live, setupId: "next", occurredAt: new Date(NOW - 61_000).toISOString() } })).state, "expired");
+  assert.equal(posts.length, 2);
+});
+
 test("sweep and reclaim alerts use the new family name and retain the reference-only lifecycle", () => {
   const sweep = event({ family: "sweep_reclaim", profile: "nitrous", kind: "triggered" });
   assert.equal(validNitrousTelegramEvent(sweep), true);
@@ -234,3 +253,4 @@ test("connection test verifies the exact channel and bot and sends no fake trade
   assert.match(JSON.stringify(posts), /not a trade signal/);
   assert.doesNotMatch(JSON.stringify(posts), /Entry zone|Stop:|Target:/);
 });
+

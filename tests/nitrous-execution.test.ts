@@ -212,3 +212,58 @@ test("forming or stale reference candles and incomplete aggregation do not trigg
   assert.equal(aggregateClosed([...bars].reverse(), 5, start + 5 * 60_000)[0].c, bars[4].c);
   assert.equal(aggregateClosed(bars.map((b, i) => i === 2 ? { ...b, c: b.h + 1 } : b), 5, start + 5 * 60_000).length, 0);
 });
+
+
+test("submission observes a live Nitrous fill once and continues if its notification throws", async () => {
+  const f = fixture();
+  const observed: string[] = [];
+  f.input.onLivePosition = row => {
+    observed.push(row.positionId);
+    throw new Error("telegram delivery unavailable");
+  };
+  const result = await submitProtected(f.input);
+  assert.equal(result.state, "protected");
+  assert.deepEqual(observed, ["owned-position"]);
+  assert.deepEqual(f.states.slice(-1), ["protected"]);
+  assert.deepEqual(f.requested, []);
+});
+
+test("an order acknowledgement or historical fill alone cannot activate Telegram", async () => {
+  const f = fixture();
+  f.port.submit = async () => ({ ok: true, orderId: "open-1", positionId: null });
+  f.port.resolvePosition = async () => ({ positionId: "owned-position", fillPrice: 4200, filledQty: 0.05 });
+  f.port.positions = async () => ({ ok: true, rows: [] });
+  let observations = 0;
+  f.input.onLivePosition = () => { observations++; };
+  const result = await submitProtected(f.input);
+  assert.equal(result.state, "protection_pending");
+  assert.equal(observations, 0);
+});
+
+test("live observations exclude merged positions and mismatched broker ownership", async () => {
+  for (const kind of ["merged", "side", "tag", "size"] as const) {
+    const f = fixture();
+    if (kind === "merged") f.input.preexistingPositionIds = ["owned-position"];
+    if (kind === "side") f.port.positions = async () => ({ ok: true, rows: [livePosition({ side: "sell" })] });
+    if (kind === "tag") f.port.positions = async () => ({ ok: true, rows: [livePosition({ strategyId: "NITROUS:another" })] });
+    if (kind === "size") f.port.positions = async () => ({ ok: true, rows: [livePosition({ qty: 0 })] });
+    let observations = 0;
+    f.input.onLivePosition = () => { observations++; };
+    await submitProtected(f.input);
+    assert.equal(observations, 0, kind);
+  }
+});
+
+test("a broker-confirmed fill can activate while protection is being checked", async () => {
+  const f = fixture();
+  let reads = 0;
+  f.port.positions = async () => ({
+    ok: true,
+    rows: [++reads === 1 ? livePosition({ stopReadUnknown: true, stopLoss: null }) : livePosition()],
+  });
+  const observedOn: number[] = [];
+  f.input.onLivePosition = () => { observedOn.push(reads); };
+  assert.equal((await submitProtected(f.input)).state, "protected");
+  assert.deepEqual(observedOn, [1]);
+  assert.deepEqual(f.requested, []);
+});

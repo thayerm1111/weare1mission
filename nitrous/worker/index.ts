@@ -24,12 +24,14 @@ import { buildSweepReclaim } from "../sweep-reclaim";
 import { selectWatchLevels, countScanChecks } from "../../src/lib/nitrous/dashboard";
 import { aggregateClosed, dailyAllowance, entryStillOffered, opportunityId, referenceAllowsEntry, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, sweepCandidateEligible, sweepSetups, aggressiveCandidateEligible, aggressiveSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed, qualificationRejection } from "../logic";
 import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequirement } from "../broker";
+import { createLiveActivationNotifier } from "../live-activation";
 import { protectionMatches, submitProtected } from "../submit";
 import { requestCloseOnce } from "../close";
 import { advancePublicSetups, publicSetupTerminal } from "../public-events";
 import { hasNitrousAddonAccess, revokeNitrousAutomationWithoutAccess } from "../access";
 import { createWaitingDiagnostics, noSetupReason, type WaitingDecision } from "../waiting-diagnostics";
 
+const notifyLive = createLiveActivationNotifier(event => publishNitrousTelegramEvent(admin(), event));
 const HOLDER = `nitrous-${hostname()}-${process.pid}`;
 const LEASE_MS = 45_000;
 let stopped = false;
@@ -563,6 +565,8 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
       preexistingPositionIds,
       target: setup.target, strategyId, tick: spec.tickSize!, riskBudget: Math.min(size.riskBudget, remaining), valuePerPricePerLot: size.valuePerPricePerLot,
       commissionPerLot: cfg.risk.commissionPerLotRoundTrip, exitAllowance: cfg.risk.exitSlippageTicks * spec.tickSize!, protectionDeadlineMs: 8000,
+      onLivePosition: (row, observedAt) => { void notifyLive({ environment: acct.environment, setupId: setup.setupId, side: setup.side,
+        strategyId, positionId: row.positionId, row, observedAt }); },
       approved, stillOwned: held, port, store: storeFor(acct, setup, strategyId), requestClose: async (positionId, reason) => {
         const p = checked(await db.from("nitrous_positions").select("*").eq("account_id", acct.id).eq("broker_position_id", positionId).single()) as Position;
         if (p.broker_strategy_id !== strategyId) throw new Error("Close ownership could not be verified.");
@@ -575,8 +579,8 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
 
 async function serveAccount(acct: Account, fence: number, held: () => boolean) {
   const { port, ctx } = await portFor(acct);
-  const [contract, exposureRead, metrics] = await Promise.all([port.spec(), port.positions().then(result => ({result, observedAt: iso()})), readAccountMetrics(ctx)]);
-  const {result: positions, observedAt} = exposureRead;
+  const observedAt = iso();
+  const [contract, positions, metrics] = await Promise.all([port.spec(), port.positions(), readAccountMetrics(ctx)]);
   if (!contract.ok) throw new Error(contract.error);
   if (!positions.ok) throw new Error(positions.error);
   const ownership = await checkOwnership(acct.broker_account_id, positions.rows, {}, acct.allow_shared_account === true);
@@ -594,10 +598,19 @@ async function serveAccount(acct: Account, fence: number, held: () => boolean) {
     const live = positions.rows.find(p => p.positionId === row.broker_position_id);
     const confirmed = verifiedOwnedPosition(row, live) && live?.side === row.side && Number(live?.qty) > 0 && row.status !== "orphan_review";
     try {
-      await admin().from("nitrous_positions").update({
+      const update = admin().from("nitrous_positions").update({
         live_observed_at: confirmed ? observedAt : null,
         live_unrealized_pnl: confirmed && typeof live?.unrealizedPnl === "number" && Number.isFinite(live.unrealizedPnl) ? live.unrealizedPnl : null,
       }).eq("id",row.id).eq("account_id",acct.id).eq("broker_strategy_id",row.broker_strategy_id).in("status",["open","closing","orphan_review"]);
+      if (confirmed && acct.environment === "live" && row.status === "open" && !row.close_requested_at && !protectionBlock) {
+        // Recovery after a worker restart. Use the public setup ID only for a position still open at this write.
+        const { data } = await update.eq("status", "open").is("close_requested_at", null)
+          .select("nitrous_intents!nitrous_positions_intent_id_fkey(setup_id)")
+          .maybeSingle<{ nitrous_intents: { setup_id: string } | null }>();
+        const setupId = data?.nitrous_intents?.setup_id;
+        if (setupId) void notifyLive({ environment: acct.environment, setupId, side: row.side, positionId: row.broker_position_id,
+          strategyId: row.broker_strategy_id, row: live, observedAt: Date.parse(observedAt) });
+      } else { await update; }
     } catch { /* Best effort UI data; old observations age out. */ }
   }
   if (!await revokeNitrousAutomationWithoutAccess(admin(), acct)) throw new Error("Nitrous add-on access is required for new entries. Existing positions keep their protection.");
@@ -684,4 +697,5 @@ export async function main() {
 }
 
 if (process.env.NITROUS_WORKER_AUTOSTART !== "0") void main().catch((e) => { console.error(`[nitrous] ${problem(e)}`); process.exit(1); });
+
 

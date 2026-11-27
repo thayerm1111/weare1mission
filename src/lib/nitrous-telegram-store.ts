@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   nitrousTelegramToken, normalizeNitrousChannelUrl, sendNitrousTelegramEvent, sendNitrousTelegramTest,
-  type NitrousTelegramConfig, type NitrousTelegramDeliveryStore, type NitrousTelegramEvent,
+  type NitrousTelegramConfig, type NitrousTelegramDeliveryStore, type NitrousChannelEvent,
 } from "./nitrous-telegram";
 
 export type NitrousTelegramSettingsRow = {
@@ -101,7 +101,7 @@ export function nitrousTelegramDeliveryStore(db: SupabaseClient, channelId: stri
 }
 
 /** Worker entry point. All exceptions become a non-delivery result, never an order failure. */
-export async function publishNitrousTelegramEvent(db: SupabaseClient, event: NitrousTelegramEvent) {
+export async function publishNitrousTelegramEvent(db: SupabaseClient, event: NitrousChannelEvent) {
   try {
     const row = await readNitrousTelegramSettings(db);
     const config = nitrousTelegramConfig(row);
@@ -150,3 +150,4 @@ export async function processNitrousTelegramTest(db: SupabaseClient) {
   }).eq("id", request.id).eq("state", "sending");
   if (saved.error) throw new Error("test_result_unavailable");
 }
+
