@@ -132,6 +132,22 @@ test("unprotected own exposure persists before delegating one durable close, nev
   assert.ok(!f.actions.includes("direct-close"));
 });
 
+test("a protective exit records the specific failed broker check", async () => {
+  for (const [row, reason] of [
+    [livePosition({ entry: 4200.10 }), "Filled risk 26.50 exceeds the reserved 26.00."],
+    [livePosition({ stopLoss: null }), "TradeLocker did not confirm the stop price."],
+    [livePosition({ takeProfit: null }), "TradeLocker did not confirm the target price."],
+  ] as const) {
+    const f = fixture();
+    f.port.positions = async () => ({ ok: true, rows: [row] });
+    const reasons: string[] = [];
+    f.input.requestClose = async (_id, message) => { reasons.push(message); };
+    const result = await submitProtected(f.input);
+    assert.equal(result.reason, reason);
+    assert.deepEqual(reasons, [reason]);
+  }
+});
+
 test("a position ID with someone else's strategy never authorizes amend or emergency close", async () => {
   const f = fixture();
   f.port.positions = async () => ({ ok: true, rows: [livePosition({ strategyId: "other", stopLoss: null })] });

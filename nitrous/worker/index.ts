@@ -9,7 +9,7 @@ import { buildSnapshot } from "../../rapid/engine/snapshot";
 import { findPivots, classifyRegime } from "../../rapid/engine/structure";
 import { requiredStopBuffer } from "../../rapid/engine/tolerances";
 import { roundOutward } from "../../rapid/core/decimal";
-import { sizePosition } from "../../rapid/risk/sizing";
+import { sizeNitrousPosition } from "../sizing";
 import { dropForming, fetchBars } from "../../rapid/market/twelvedata";
 import { GOLD_SESSION, isSessionOpen } from "../../rapid/market/session";
 import type { Bar, InstrumentSpec, MarketSnapshot, Setup } from "../../rapid/core/types";
@@ -25,7 +25,7 @@ import { selectWatchLevels, countScanChecks } from "../../src/lib/nitrous/dashbo
 import { aggregateClosed, dailyAllowance, entryStillOffered, opportunityId, referenceAllowsEntry, memberActive, referenceFresh, supportedSetups, fastCandidateEligible, fastSetups, sweepCandidateEligible, sweepSetups, aggressiveCandidateEligible, aggressiveSetups, mergeNitrousSetups, setupAllowedForAccount, triggerConfirmed, qualificationRejection } from "../logic";
 import { readAccountMetrics, readClosedOutcome, readOpeningFill, marginRequirement } from "../broker";
 import { createLiveActivationNotifier } from "../live-activation";
-import { protectionMatches, submitProtected } from "../submit";
+import { protectionIssue, submitProtected } from "../submit";
 import { requestCloseOnce } from "../close";
 import { advancePublicSetups, publicSetupTerminal } from "../public-events";
 import { hasNitrousAddonAccess, revokeNitrousAutomationWithoutAccess } from "../access";
@@ -67,7 +67,7 @@ type Intent = Record<string, unknown> & {
   broker_position_id: string | null; broker_order_id: string | null; created_at: string;
   side: "buy" | "sell"; planned_stop: number; planned_target: number; qty: number;
   planned_entry: number; estimated_risk: number; strategy_version: string; config_version: string;
-  management_version: string; risk_pct: number; detail: { managementEnabled?: boolean; preexistingPositionIds?: string[] } | null;
+  management_version: string; risk_pct: number; detail: { managementEnabled?: boolean; valuePerPricePerLot?: number; preexistingPositionIds?: string[] } | null;
 };
 
 const market: { m1: Bar[]; higher: Record<string, Bar[]>; fetchedAt: number; higherAt: number; snapshot: MarketSnapshot | null; persistedAt: number; publicSetups: Setup[] } =
@@ -287,19 +287,19 @@ async function reconcile(acct: Account, port: TradeLockerPort, ctx: PortContext,
     const live = positionId ? brokerRows.find((r) => r.positionId === positionId && r.strategyId === intent.broker_strategy_id) : undefined;
     if (live && live.side === intent.side && Number(live.entry) > 0 && Number(live.qty) > 0) {
       const store = storeFor({ ...acct, management_enabled: intent.detail?.managementEnabled === true, risk_pct: Number(intent.risk_pct) }, { side: intent.side, strategyVersion: intent.strategy_version, configVersion: intent.config_version }, intent.broker_strategy_id);
-      const protection = protectionMatches(live, { side: intent.side, qty: Number(intent.qty), stop: Number(intent.planned_stop), target: Number(intent.planned_target),
+      const issue = protectionIssue(live, { side: intent.side, qty: Number(intent.qty), stop: Number(intent.planned_stop), target: Number(intent.planned_target),
         tick: spec.tickSize!, strategyId: intent.broker_strategy_id, riskBudget: Number(intent.estimated_risk),
-        valuePerPricePerLot: spec.contractSize ?? 0, commissionPerLot: NITROUS_CONFIG.risk.commissionPerLotRoundTrip,
+        valuePerPricePerLot: intent.detail?.valuePerPricePerLot ?? spec.contractSize ?? 0, commissionPerLot: NITROUS_CONFIG.risk.commissionPerLotRoundTrip,
         exitAllowance: (spec.tickSize ?? 0.01) * NITROUS_CONFIG.risk.exitSlippageTicks });
-      await store.openPosition(intent.id, { positionId: live.positionId, entry: live.entry!, qty: live.qty!, stop: Number(intent.planned_stop), target: Number(intent.planned_target), protectionState: protection ? "protected" : "unconfirmed" });
+      await store.openPosition(intent.id, { positionId: live.positionId, entry: live.entry!, qty: live.qty!, stop: Number(intent.planned_stop), target: Number(intent.planned_target), protectionState: issue === null ? "protected" : "unconfirmed" });
       if (opening.ok) checked(await db.from("nitrous_positions").update({ entry: opening.entry, original_qty: opening.qty, opened_at: opening.openedAt })
         .eq("account_id", acct.id).eq("broker_position_id", opening.positionId));
-      if (protection) {
+      if (issue === null) {
         await store.setState(intent.id, "protected", { broker_position_id: live.positionId, fill_price: live.entry, filled_qty: live.qty });
         checked(await db.from("nitrous_positions").update({ status: "open", protection_state: "protected", current_stop: live.stopLoss, current_qty: live.qty })
           .eq("account_id", acct.id).eq("broker_position_id", live.positionId).is("close_requested_at", null));
       }
-      else await store.setState(intent.id, "protection_pending", { broker_position_id: live.positionId, error: "Protection or fill risk requires review." });
+      else await store.setState(intent.id, "protection_pending", { broker_position_id: live.positionId, error: issue });
     } else if (!live) {
       // A fast trade can open and close before the first successful positions read. Recover its
       // terminal opening fill by acknowledged identity, then require complete closing evidence.
@@ -359,7 +359,7 @@ async function closeOnce(p: Position, port: TradeLockerPort, reason: string, hel
         updated_at: iso(), ...(r.state === "cancelled" ? { close_dispatched_at: null } : {}),
         ...(r.state === "rejected" ? { status: "open", close_requested_at: null, close_dispatched_at: null } : {}) }).eq("id", p.id).eq("close_request_state", "dispatching"));
     } });
-  await journal({ accountId: p.account_id, stage: "manage", code: "close_requested", decision: result.state, reason });
+  await journal({ accountId: p.account_id, intentId: p.intent_id, stage: "manage", code: "close_requested", decision: result.state, reason });
 }
 
 async function manage(acct: Account, rows: Position[], brokerRows: BrokerPosition[], port: TradeLockerPort, spec: InstrumentSpec, held: () => boolean) {
@@ -519,10 +519,11 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
       automationVersionNow: acct.automation_version, automationEnabled: acct.automation_enabled,
       sessionOpen: isSessionOpen(approvedAt, GOLD_SESSION), newsBlocked: false, basisUnstable: basis > cfg.feed.maxBasisUsd, signalAgeMs: 0, cfg });
     if (!gate.ok) { waiting(gate.code, gate.reason, setup, undefined, "skip"); continue; }
-    const size = sizePosition({ side: setup.side, executable: price, stop: setup.stop, equity, riskPct: Number(acct.risk_pct), spec,
-      conversionRate: currency && currency === spec.currency ? 1 : null, remainingSessionRisk: remaining, cfg });
+    const size = sizeNitrousPosition({ side: setup.side, executable: price, stop: setup.stop, equity, riskPct: Number(acct.risk_pct), spec,
+      conversionRate: currency && currency === spec.currency ? 1 : null, remainingSessionRisk: remaining, cfg }, setup);
     if (!size.ok) { waiting("sizing_blocked", size.reason, setup, { blockers: size.blockers }, "skip"); continue; }
-    const margin = marginRequirement(spec, size.qty, price, currency);
+    // Notional margin is largest at the highest fill price, including for sells.
+    const margin = marginRequirement(spec, size.qty, Math.max(setup.entryBandHigh, size.entryWorst), currency);
     if (margin === null || freeMargin === null || margin > freeMargin - equity * 0.2) {
       waiting("margin_blocked", "This setup does not fit the broker's verified free margin with a 20% equity reserve.", setup, undefined, "skip");
       continue;
@@ -541,7 +542,7 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
         ? reservation.reason.slice(0, 400) : "Account permission or risk reservation did not approve this entry.", setup, undefined, "skip");
       continue;
     }
-    checked(await db.from("nitrous_intents").update({ detail: { managementEnabled: acct.management_enabled, feeAllowancePerLot: cfg.risk.commissionPerLotRoundTrip, quoteBasis: basis, profile: acct.profile, preexistingPositionIds } }).eq("id", reservation.intent_id));
+    checked(await db.from("nitrous_intents").update({ detail: { managementEnabled: acct.management_enabled, valuePerPricePerLot: size.valuePerPricePerLot, feeAllowancePerLot: cfg.risk.commissionPerLotRoundTrip, quoteBasis: basis, profile: acct.profile, preexistingPositionIds } }).eq("id", reservation.intent_id));
     const approved = async () => {
       if (!held() || Date.now() - approvedAt > cfg.feed.maxSignalToSubmitMs || !referenceFresh(market.m1, Date.now())) return false;
       const [a, c, lease, member, addonAccess] = await Promise.all([
@@ -563,7 +564,7 @@ async function considerEntry(acct: Account, port: TradeLockerPort, spec: Instrum
     };
     const outcome = await submitProtected({ intentId: reservation.intent_id, side: setup.side, qty: size.qty, stop: setup.stop,
       preexistingPositionIds,
-      target: setup.target, strategyId, tick: spec.tickSize!, riskBudget: Math.min(size.riskBudget, remaining), valuePerPricePerLot: size.valuePerPricePerLot,
+      target: setup.target, strategyId, tick: spec.tickSize!, riskBudget: size.estimatedRisk, valuePerPricePerLot: size.valuePerPricePerLot,
       commissionPerLot: cfg.risk.commissionPerLotRoundTrip, exitAllowance: cfg.risk.exitSlippageTicks * spec.tickSize!, protectionDeadlineMs: 8000,
       onLivePosition: (row, observedAt) => { void notifyLive({ environment: acct.environment, setupId: setup.setupId, side: setup.side,
         strategyId, positionId: row.positionId, row, observedAt }); },
