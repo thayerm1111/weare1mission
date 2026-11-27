@@ -9,6 +9,8 @@ import type { NitrousAccount, NitrousAnalyze, NitrousMode, NitrousPosition } fro
 import { NITROUS_CONSENT_VERSION, NITROUS_PROFILES } from "@/lib/nitrous/policy";
 import { useNitrousStatus } from "./useNitrousStatus";
 import { accountIsActive, elapsed, modeName, money, price, shownPnl, shownPnlLabel, validAnalyze } from "./presentation";
+import { liveNitrousPositions } from "@/lib/nitrous/dashboard";
+import { NitrousBoostMeter, type BoostState } from "./NitrousBoostMeter";
 import { NitrousConnect } from "./NitrousConnect";
 import { NitrousAddonPanel } from "./NitrousAddonPanel";
 import { NitrousTelegramPanel } from "./NitrousTelegramPanel";
@@ -95,6 +97,10 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
   const accountClock = !status.error && status.data && status.receivedAt && status.now >= status.receivedAt && status.now-status.receivedAt<=45_000
     ? Date.parse(status.data.serverTime) + status.now-status.receivedAt : 0;
 
+  const livePositions = liveNitrousPositions(account, accountClock);
+  const boostState: BoostState = livePositions.length ? "live" : account?.environment === "demo" ? "demo"
+    : !accountClock || account?.state === "reconnect_required" || account?.positions.length ? "checking" : "standby";
+
   const refreshAnalysis = useCallback(async () => {
     if (!entitled) return;
     pendingAnalysis.current?.abort(); const controller = new AbortController(); pendingAnalysis.current = controller;
@@ -161,9 +167,10 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
     if (!account || !canArm || busy) return;
     setArmConsent(accountStrategyConsent(account, mode)); setActionError(""); setReviewScope(selectedScope);
   };
-  return <div className="nitrous" data-mode={mode}>
+  return <div className="nitrous" data-mode={mode} data-boost={account ? boostState : undefined}>
     <header className="nitrous-header"><div className="nitrous-brand"><ProductIcon kind="nitrous" size="lg" /><div>{!isSimple && <p className="nitrous-eyebrow">ONE MISSION · GOLD AUTOMATION</p>}<h1>Nitrous</h1><p>{isSimple ? "Gold automation" : "Read the setup. Choose your pace."}</p></div></div>
       <span className="nitrous-powered"><span />Powered by TradeLocker</span></header>
+    {account && <NitrousBoostMeter state={boostState} count={livePositions.length} side={livePositions[0]?.side ?? null} />}
     {(entitled || account) && <div className="nitrous-mode-switch" role="group" aria-label="Trading mode">
       <button type="button" aria-pressed={mode === "slow_drip"} onClick={() => chooseMode("slow_drip")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Droplets size={23} /></span><span><strong>Slow Drip</strong><small>Measured risk. Selective entries.</small></span><span className="nitrous-mode-risk">0.5–1%<small>per trade</small></span></button>
       <button type="button" aria-pressed={mode === "nitrous"} onClick={() => chooseMode("nitrous")} disabled={!entitled || !!account?.automationEnabled || !!busy}><span className="nitrous-mode-icon"><Zap size={23} /></span><span><strong>Nitrous</strong><small>Faster setup scanner. Higher risk.</small></span><span className="nitrous-mode-risk">3–5%<small>per trade</small></span></button>
@@ -209,4 +216,5 @@ export function NitrousWorkspace({ isAdmin = false }: { isAdmin?: boolean }) {
     {closing && account && <CloseDialog position={closing} account={account} busy={busy === "close"} error={actionError} onCancel={() => { setClosing(null); setActionError(""); }} onConfirm={() => void closePosition()} />}
   </div>;
 }
+
 

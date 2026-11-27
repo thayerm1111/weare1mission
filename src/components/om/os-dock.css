@@ -190,3 +190,40 @@
   .om-os .om-os-dock,
   .om-look-graphite .om-os .om-os-dock { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--om-menu); }
 }
+
+/* Broker-observed Nitrous activation in the member's trading shell. */
+.om-os .om-dock-live-word { display: none; }
+.om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) {
+  --om-boost-glow: 0 126 181;
+  --om-boost-ink: #005e82;
+}
+.om-look-graphite .om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) {
+  --om-boost-glow: 45 202 244;
+  --om-boost-ink: #88eaff;
+}
+.om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) .om-nav-wrap {
+  background-image: linear-gradient(90deg, rgb(var(--om-boost-glow) / .13), transparent 68%);
+  box-shadow: inset 0 -1px rgb(var(--om-boost-glow) / .42);
+}
+.om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) .om-os-dock {
+  border-color: rgb(var(--om-boost-glow) / .54);
+  box-shadow: inset 0 1px rgb(var(--om-boost-glow) / .22), 0 -5px 23px -10px rgb(var(--om-boost-glow) / .48), 0 14px 40px -16px rgb(0 0 0 / .58);
+}
+.om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) .om-os-app[data-app="nitrous"],
+.om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) .om-product-nitrous {
+  color: var(--om-boost-ink);
+}
+.om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) .om-os-dock .om-product-nitrous {
+  filter: drop-shadow(0 0 7px rgb(var(--om-boost-glow) / .65));
+}
+.om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) .om-dock-live-word { display: inline; }
+@media (prefers-reduced-motion: no-preference) {
+  .om-app.om-os:is([data-nitrous-live], :has(.nitrous[data-boost="live"])) .om-os-dock .om-product-nitrous {
+    animation: om-nitrous-ignite 650ms ease-out both;
+  }
+  @keyframes om-nitrous-ignite {
+    from { filter: drop-shadow(0 0 1px rgb(var(--om-boost-glow) / .1)); }
+    45% { filter: drop-shadow(0 0 12px rgb(var(--om-boost-glow) / .85)); }
+    to { filter: drop-shadow(0 0 7px rgb(var(--om-boost-glow) / .65)); }
+  }
+}

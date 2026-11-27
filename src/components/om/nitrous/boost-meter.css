@@ -1,0 +1,129 @@
+/* The dial and rail indicate broker-confirmed activation. */
+.nt-boost {
+  --boost-ink: var(--om-text-3);
+  --boost-track: rgb(var(--om-fg) / .1);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(48px, 24%);
+  align-items: center;
+  gap: clamp(12px, 2vw, 28px);
+  margin: -3px 0 18px;
+  padding: 10px clamp(14px, 2vw, 28px);
+  border: 1px solid var(--om-edge);
+  border-radius: 18px;
+  background: linear-gradient(100deg, rgb(var(--om-ai-rgb) / .06), transparent 65%), var(--om-surface);
+  color: var(--om-text);
+}
+.nt-boost__dial {
+  position: relative;
+  width: 62px;
+  aspect-ratio: 1;
+  border: 1px solid #536579;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 28%, #233345, #0a101b 72%);
+  box-shadow: inset 0 0 0 2px #111927, 0 1px 3px #0003;
+}
+.nt-boost__scale, .nt-boost__ticks {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  mask: radial-gradient(circle closest-side, transparent 82%, #000 86%);
+}
+.nt-boost__scale {
+  background: conic-gradient(from -125deg, #46586c 0deg 250deg, transparent 250deg);
+}
+.nt-boost__ticks {
+  inset: 10px;
+  mask: radial-gradient(circle closest-side, transparent 83%, #000 87%);
+  background: repeating-conic-gradient(from -125deg, #91a0af 0deg 2deg, transparent 2deg 25deg);
+  clip-path: polygon(0 0,100% 0,100% 84%,50% 50%,0 84%);
+}
+.nt-boost__needle {
+  position: absolute;
+  bottom: 50%;
+  left: calc(50% - 2px);
+  width: 4px;
+  height: 36%;
+  background: #a6b1c0;
+  clip-path: polygon(45% 0, 70% 0, 100% 100%, 0 100%);
+  transform: rotate(-120deg);
+  transform-origin: center bottom;
+  transition: transform 360ms ease-out;
+}
+.nt-boost__hub {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  top: calc(50% - 4px);
+  left: calc(50% - 4px);
+  border-radius: 50%;
+  background: #a0acb9;
+  box-shadow: inset 0 0 0 2px #647384;
+}
+.nt-boost__dial b {
+  position: absolute;
+  bottom: 9%;
+  width: 100%;
+  color: #bac7d4;
+  font: italic 700 9px/1.2 ui-monospace, monospace;
+  text-align: center;
+  letter-spacing: .04em;
+}
+.nt-boost__readout { display: grid; gap: 3px; }
+.nt-boost__readout strong { font-size: clamp(17px, 1.9vw, 24px); font-weight: 600; letter-spacing: -.035em; line-height: 1.15; }
+.nt-boost__readout span { font-size: 12px; line-height: 1.4; color: var(--boost-ink); }
+.nt-boost__rail {
+  height: clamp(16px, 2.1vw, 24px);
+  background: var(--boost-track);
+  mask: repeating-linear-gradient(105deg, #000 0 6px, transparent 6.5px 9px);
+  transform: skewX(-4deg);
+}
+.nt-boost__rail i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #5085ff, #63e2ff 65%, #e4fdff);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+.nt-boost[data-state="live"] {
+  --boost-ink: #bce5fb;
+  --boost-track: #274964;
+  color: #f0fbff;
+  border-color: #3e95bf;
+  background: radial-gradient(ellipse at 0% 65%, #234a67, transparent 65%), linear-gradient(110deg, #152538, #071927 70%, #143449);
+  box-shadow: inset 0 1px 0 #9ce9ff24, 0 5px 20px #147bb31c;
+}
+.nt-boost[data-state="live"]::after {
+  content: ""; pointer-events: none; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(105deg, transparent 32%, #96ddff26 48%, transparent 58%);
+  animation: nt-boost-ignition 780ms ease-out both;
+}
+.nt-boost[data-state="live"] .nt-boost__scale {
+  background: conic-gradient(from -125deg, #5071d2 0deg, #5ccfff 140deg, #a0f5ff 242deg, #f0feff 250deg, transparent 250deg);
+}
+.nt-boost[data-state="live"] .nt-boost__dial { border-color: #63b4d5; box-shadow: inset 0 0 0 2px #182a39, 0 0 12px #4dcfff33; }
+.nt-boost[data-state="live"] .nt-boost__needle { background: #a8f4ff; transform: rotate(120deg); animation: nt-boost-needle 720ms cubic-bezier(.22,.7,.3,1) both; }
+.nt-boost[data-state="live"] .nt-boost__rail i { transform: scaleX(1); animation: nt-boost-charge 690ms cubic-bezier(.2,.7,.22,1) both; }
+.nitrous[data-boost="live"] > .nitrous-header .om-product-icon,
+.nitrous[data-boost="live"] .nitrous-mode-switch > [aria-pressed="true"] {
+  border-color: color-mix(in srgb, #44bceb 52%, var(--om-edge));
+  background: linear-gradient(118deg, #389cd922, #50b3d80d), var(--om-surface);
+}
+.nitrous[data-boost="live"] .nitrous-panel { border-color: color-mix(in srgb, #52aaca 37%, var(--om-edge)); }
+.nitrous[data-boost="live"] .nitrous-powered > span { background: #34a6cc; box-shadow: 0 0 7px #39b9e680; }
+@keyframes nt-boost-ignition { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes nt-boost-needle { from { transform: rotate(-120deg); } to { transform: rotate(120deg); } }
+@keyframes nt-boost-charge { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (max-width: 540px) {
+  .nt-boost { grid-template-columns: 55px minmax(0, 1fr) minmax(29px, 17%); padding: 9px 12px; gap: 10px; }
+  .nt-boost__dial { width: 55px; }
+  .nt-boost__readout span { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-boost *, .nt-boost[data-state="live"]::after { animation: none !important; transition: none !important; }
+  .nt-boost[data-state="live"]::after { display: none; }
+}

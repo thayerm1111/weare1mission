@@ -27,6 +27,7 @@ import { ShellContext } from "./shell";
 import { ProductIcon } from "./ProductIcon";
 import { notifyDockNavigation, startDockGesture } from "./dock-gesture";
 import { FlowAccountBar, FlowAccountProvider } from "./FlowAccount";
+import { useNitrousLiveAccent } from "./useNitrousLiveAccent";
 import { MobileViewport } from "./MobileViewport";
 import { AtlasProvider, useAtlasPanel } from "./atlas/AtlasProvider";
 import { openAtlas } from "@/lib/atlas/open";
@@ -217,9 +218,9 @@ function AppDock() {
   };
   return <nav className="om-os-dock" aria-label="One Mission apps" onPointerDown={event => startDockGesture(event.nativeEvent, router)}>
     {APPS.map((app) => {
-      const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.key === "plays" ? <><span className="om-os-title-full">{app.dockLabel}</span><span className="om-os-title-short">AI Plays</span></> : app.dockLabel}</span></>;
+      const content = <><ProductIcon kind={app.key} /><span className="om-os-app-title">{app.key === "plays" ? <><span className="om-os-title-full">{app.dockLabel}</span><span className="om-os-title-short">AI Plays</span></> : app.key === "nitrous" ? <>Nitrous<span className="om-dock-live-word"> live</span></> : app.dockLabel}</span></>;
       const props = {
-        className: "om-os-app", "data-app": app.key, "aria-label": app.label,
+        className: "om-os-app", "data-app": app.key, "aria-label": app.key === "nitrous" ? undefined : app.label,
         "aria-current": here === app.key ? "page" as const : undefined,
         onClick: (event: ReactMouseEvent<HTMLAnchorElement>) => returnToTop(event, app.key, app.href),
       };
@@ -247,6 +248,9 @@ export function AppShell({ children, member, configured = true, preview = false,
 }) {
   // The public site's header and footer step aside while this shell is on screen, and the member's look is put on.
   // (The same classes are set before first paint by SHELL_SCRIPT; this covers arriving without a reload.)
+  const screen = activeKey(usePathname() || "", null);
+  // The Nitrous screen already polls the selected account and controls its own live attribute.
+  const nitrousLive = useNitrousLiveAccent(configured && screen && screen !== "nitrous" ? member.id ?? null : null);
   const [look, setLook] = useState<Look>(DEFAULT_LOOK);
   const experience = useExperiencePreference();
   useEffect(() => {
@@ -273,7 +277,7 @@ export function AppShell({ children, member, configured = true, preview = false,
   }, []);
   return (
     <ExperienceContext.Provider value={experience}>
-    <div className={`om-app om-os${atlas ? " om-os-atlas" : ""}`} data-experience={experience.mode}>
+    <div className={`om-app om-os${atlas ? " om-os-atlas" : ""}`} data-experience={experience.mode} data-nitrous-live={nitrousLive ? "" : undefined}>
       <MobileViewport />
       <FlowAccountProvider configured={configured}>
       <AtlasProvider configured={configured} memberKey={member.email ?? member.name ?? "member"}>

@@ -1,4 +1,4 @@
-import type { NitrousDiagnostics, NitrousScanCheck, NitrousWatchLevel, NitrousPosition, NitrousCandle, NitrousScenario } from "./types";
+import type { NitrousAccount, NitrousDiagnostics, NitrousScanCheck, NitrousWatchLevel, NitrousPosition, NitrousCandle, NitrousScenario } from "./types";
 const record = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string,unknown> : {};
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 const positive = (n: unknown): n is number => finite(n) && n > 0;
@@ -40,6 +40,13 @@ export function isObservedTrade(p: NitrousPosition, now: number): boolean {
   const at=Date.parse(p.liveObservedAt??"");
   return (p.status==="open"||p.status==="closing")&&positive(p.quantity)&&positive(p.entry)&&finite(now)&&now>0&&finite(at)&&now-at>=-5000&&now-at<=30000;
 }
+/** Positions that may engage the live trade indicator for this account. */
+export function liveNitrousPositions(account: Pick<NitrousAccount, "environment" | "state" | "positions"> | null, now: number): NitrousPosition[] {
+  if (!account || account.environment !== "live" || account.state === "reconnect_required") return [];
+  return account.positions.filter(position => position.status === "open" && !position.closeRequestedAt
+    && (!position.closeRequestState || position.closeRequestState === "rejected")
+    && isObservedTrade(position, now));
+}
 /** The latest reference trigger and a verified broker position are independent observations. */
 export function chartProgressStage(marketFresh: boolean, plan: NitrousScenario | null, chartPosition: NitrousPosition | null, accountNow: number) {
   if (chartPosition) return isObservedTrade(chartPosition, accountNow) ? "Filled" : null;
@@ -80,3 +87,4 @@ export function displayableSetup(s: NitrousScenario, reference:number|null, now:
   return s.side==="buy"? reference>s.invalidation&&reference<s.target :
     s.side==="sell"?reference<s.invalidation&&reference>s.target:false;
 }
+
