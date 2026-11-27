@@ -29,7 +29,7 @@ function parentZone(zones: readonly Zone[], pivot: Pivot): Zone | undefined {
  * inside it. Entry is near THAT reclaim close; this is not another break/retest of the old zone.
  * The swept wick remains the structural invalidation, with all existing fast risk limits intact.
  */
-export function buildSweepReclaim(ctx: EngineContext): BuildResult {
+export function buildSweepReclaim(ctx: EngineContext, onPriceWait?: (setup: Setup) => void): BuildResult {
   const cfg = NITROUS_SWEEP_CONFIG;
   const result: BuildResult = { setups: [], rejections: [] };
   const reject = (tf: Timeframe, code: RejectionCode, detail: string, zoneId?: string) => {
@@ -140,7 +140,7 @@ export function buildSweepReclaim(ctx: EngineContext): BuildResult {
       const bracketClear = side === "buy" ? stop < band.low && plan.target > band.high : stop > band.high && plan.target < band.low;
       const currentInside = ctx.refPrice >= band.low && ctx.refPrice <= band.high;
       const currentValid = side === "buy" ? ctx.refPrice > extreme && ctx.refPrice < plan.target : ctx.refPrice < extreme && ctx.refPrice > plan.target;
-      if (!bracketClear || !currentInside || !currentValid) {
+      if (!bracketClear || !currentValid) {
         reject(tf, "outside_band", `Current price must remain inside the reclaim-close entry band ${band.low.toFixed(2)}–${band.high.toFixed(2)}, beyond the sweep invalidation and before the target.`, zoneId);
         continue;
       }
@@ -169,7 +169,12 @@ export function buildSweepReclaim(ctx: EngineContext): BuildResult {
           "The existing structural stop, net reward/risk, spread, margin and account risk checks must still qualify.",
         ],
       };
-      result.setups.push(setup);
+      if (!currentInside) {
+        reject(tf, "outside_band", "Reference price is outside the frozen reclaim-close entry band.", zoneId);
+        onPriceWait?.(setup);
+      } else {
+        result.setups.push(setup);
+      }
       usedParents.add(identity);
     }
     if (!swept) reject(tf, "no_sweep", "The latest closed candle did not wick beyond an already-known swing by the required buffer from the inside side.");

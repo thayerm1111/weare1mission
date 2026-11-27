@@ -140,3 +140,18 @@ test("broker minimum stop, finite reference, spread, costs, suspended edge and o
   assert.equal(get({ ...ctx, zoneHistory: [{ ...merged, failedStops: cfg.range.maxFailedStopsPerZone }] }, "compression_breakout"), undefined);
   assert.equal(get({ ...ctx, zoneHistory: [{ ...merged, invalidatedAt: T }] }, "compression_breakout"), undefined);
 });
+
+test("revalidating a range rejection or breakout outside its band cannot authorize a new entry", () => {
+  for (const family of ["range_edge_rejection", "compression_breakout"] as const) {
+    for (const side of ["buy", "sell"] as const) {
+      const ctx = fixture(family, side), plan = get(ctx, family)!;
+      const waiting: Setup[] = [];
+      const reference = side === "buy" ? plan.entryBandHigh+.01 : plan.entryBandLow-.01;
+      const scan = (extra: Partial<EngineContext>) => buildAggressivePatterns({ ...ctx, refPrice: reference, ...extra }, s => waiting.push(s));
+      assert.equal(scan({}).setups.length, 0);
+      assert.deepEqual(waiting, [plan]);
+      scan({refPrice:plan.invalidation}); scan({refPrice:plan.target}); scan({asOf:plan.expiresAt}); scan({spread:5});
+      assert.equal(waiting.length, 1);
+    }
+  }
+});

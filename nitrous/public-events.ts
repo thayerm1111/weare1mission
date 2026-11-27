@@ -16,6 +16,8 @@ export type PublicSetupsInput = {
   /** Persist and reload the full previous output, including its terminal tombstones. */
   prior: readonly Setup[];
   current: readonly Setup[];
+  /** Structurally confirmed immediate patterns waiting solely on reference price. Cannot create a new offer. */
+  priceWaits?: readonly Setup[];
   /** One-minute reference candles, bucket-open epoch milliseconds; order is immaterial. */
   bars: readonly Bar[];
   referencePrice: number | null;
@@ -46,6 +48,20 @@ function validPlan(s: Setup): boolean {
   }
   return s.side === "buy" ? s.stop < s.entryBandLow && s.target > s.entryBandHigh
     : s.stop > s.entryBandHigh && s.target < s.entryBandLow;
+}
+
+function sameFields(a: object | null | undefined, b: object | null | undefined): boolean {
+  if (a == null || b == null) return a == null && b == null;
+  return Object.entries(a).every(([key, value]) => Object.hasOwn(b, key) && b[key as keyof typeof b] === value);
+}
+
+/** A recalculation cannot extend a confirmed candle's window or silently change its plan. */
+function sameImmediatePlan(a: Setup, b: Setup): boolean {
+  return (["setupId", "configVersion", "strategyVersion", "family", "side", "timeframe", "zoneId", "zoneVersion", "parentId",
+    "expiresAt", "entryBandLow", "entryBandHigh", "refEntry", "invalidation", "stop", "target", "opposingLevelId", "opposingPrice"] as const)
+    .every(key => a[key] === b[key])
+    && sameFields(a.sweepEvidence, b.sweepEvidence) && sameFields(a.aggressiveEvidence, b.aggressiveEvidence)
+    && sameFields(a.tolerances, b.tolerances);
 }
 
 /** Explicit public-field projection; extra account/broker properties are never carried forward. */
@@ -146,6 +162,16 @@ export function advancePublicSetups(input: PublicSetupsInput): PublicSetupsResul
     && (conflictAt===null || conflictAt<latest.t));
   const current = new Map<string,Setup>();
   for (const s of input.current) if (validPlan(s) && s.createdAt <= now && !current.has(s.setupId)) current.set(s.setupId,s);
+  const priceWaits = new Map<string,Setup>();
+  const price = input.referencePrice;
+  if (ready && positive(price)) {
+    for (const s of input.priceWaits ?? []) {
+      if (!validPlan(s) || !(s.sweepEvidence || s.aggressiveEvidence) || s.createdAt > now || now >= s.expiresAt
+        || publicSetupTerminal(s) || (price >= s.entryBandLow && price <= s.entryBandHigh)) continue;
+      if (s.side === "buy" ? price <= s.invalidation || price >= s.target : price >= s.invalidation || price <= s.target) continue;
+      priceWaits.set(s.setupId, s);
+    }
+  }
   const prior = new Map<string,Setup>();
   for (const s of input.prior) if (validPlan(s) && !prior.has(s.setupId)) prior.set(s.setupId,copy(s));
   const results:Setup[]=[];
@@ -153,7 +179,8 @@ export function advancePublicSetups(input: PublicSetupsInput): PublicSetupsResul
   const ids = [...prior.keys(),...current.keys()].filter((id,i,a) => a.indexOf(id)===i);
   for (const id of ids) {
     const old = prior.get(id);
-    const candidate = current.get(id);
+    const wait = old && priceWaits.get(id);
+    const candidate = current.get(id) ?? wait;
     if (old && publicSetupTerminal(old)) {
       if (now-old.stateAt <= RETAIN_TERMINAL_MS) results.push(old);
       continue;
@@ -175,7 +202,8 @@ export function advancePublicSetups(input: PublicSetupsInput): PublicSetupsResul
       results.push(s);events.push(event(s,"invalidated",now));continue;
     }
     // A changed side/zone under the same ID is an identity conflict, not permission to retarget.
-    if (candidate.side!==s.side || candidate.family!==s.family || candidate.parentId!==s.parentId || candidate.zoneVersion!==s.zoneVersion) {
+    if (candidate.side!==s.side || candidate.family!==s.family || candidate.parentId!==s.parentId || candidate.zoneVersion!==s.zoneVersion
+      || ((s.sweepEvidence || s.aggressiveEvidence) && !sameImmediatePlan(s, candidate))) {
       s=move(s,"invalidated",now,"The public opportunity identity changed; a new setup ID is required.");
       results.push(s);events.push(event(s,"invalidated",now));continue;
     }

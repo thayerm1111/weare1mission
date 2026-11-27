@@ -111,7 +111,7 @@ function oppositeEdge(side: Side, edges: Bounds, at: number): Zone {
     knownAt: at, provenance: { kind: "range_boundary", rangeId: id, which: buy ? "upper" : "lower" } }, id, id, at);
 }
 
-export function buildAggressivePatterns(ctx: EngineContext): BuildResult {
+export function buildAggressivePatterns(ctx: EngineContext, onPriceWait?: (setup: Setup) => void): BuildResult {
   const out: BuildResult = { setups: [], rejections: [] };
   if (!ctx.executionTimeframes.includes("M5")) return out;
   const bars = (ctx.bars.M5 ?? []).filter(b => b.t + MS <= ctx.asOf);
@@ -159,19 +159,25 @@ export function buildAggressivePatterns(ctx: EngineContext): BuildResult {
     const rr = netRewardRisk(side, b.c, stop, plan.target, costs);
     if (rr < cfg.target.minNetRewardRisk) { reject("reward_risk_short", "Insufficient reward after modeled costs.", zoneId); continue; }
     const entryBandLow = b.c - tol.touchTolerance, entryBandHigh = b.c + tol.touchTolerance;
-    if (ctx.refPrice < entryBandLow || ctx.refPrice > entryBandHigh || (buy ? entryBandLow <= invalid || entryBandHigh >= plan.target : entryBandHigh >= invalid || entryBandLow <= plan.target)) {
+    if (d * (ctx.refPrice - invalid) <= 0 || d * (plan.target - ctx.refPrice) <= 0 || (buy ? entryBandLow <= invalid || entryBandHigh >= plan.target : entryBandHigh >= invalid || entryBandLow <= plan.target)) {
       reject("outside_band", "The executable area must still be close to confirmation and clear of invalidation and target.", zoneId); continue;
     }
     const aggressiveEvidence: Evidence = { candleOpenedAt: b.t, candleClosedAt: closedAt, rangeLow: edges.low, rangeHigh: edges.high,
       rangeStartedAt: box[0].t, rangeEndedAt: b.t, edgeTime: edge.time, candleOpen: b.o, candleHigh: b.h, candleLow: b.l, candleClose: b.c };
-    out.setups.push({ setupId: `nitrous:${family}:${edge.id}:${closedAt}`, visitId: "", configVersion: cfg.configVersion, strategyVersion: cfg.version,
+    const setup: Setup = { setupId: `nitrous:${family}:${edge.id}:${closedAt}`, visitId: "", configVersion: cfg.configVersion, strategyVersion: cfg.version,
       family, side, state: "watching", timeframe: "M5", zoneId, zoneVersion: zone?.version ?? 1, parentId, createdAt: ctx.asOf, stateAt: ctx.asOf,
       expiresAt: closedAt + MS, tolerances: tol, entryBandLow, entryBandHigh, invalidation: invalid, stop, stopUsd,
       refEntry: b.c, target: plan.target, targetUsd: plan.distance, opposingLevelId: plan.obstacle?.zoneId ?? null,
       opposingPrice: plan.obstacle?.price ?? null, breakEvidence: null, aggressiveEvidence, transitions: [],
       conditionsMet: [family === "range_edge_rejection" ? "Price left a previously tested edge, returned and closed back inside the two-hour range." : "The M5 impulse closed beyond the preceding six-candle compression.",
         `Observed range ${edges.low.toFixed(2)}–${edges.high.toFixed(2)}; confirmation close ${b.c.toFixed(2)}. Net reward/risk ${rr.toFixed(2)}.`],
-      conditionsPending: ["The broker must still quote inside the entry band with sufficient room, margin and risk allowance."] });
+      conditionsPending: ["The broker must still quote inside the entry band with sufficient room, margin and risk allowance."] };
+    if (ctx.refPrice < entryBandLow || ctx.refPrice > entryBandHigh) {
+      reject("outside_band", "Reference price is outside the frozen confirmation-close entry band.", zoneId);
+      onPriceWait?.(setup);
+      continue;
+    }
+    out.setups.push(setup);
   }
   return out;
 }

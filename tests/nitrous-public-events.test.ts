@@ -4,7 +4,9 @@ import type { Bar, Setup } from "../rapid/core/types";
 import { advancePublicSetups, publicSetupTerminal, type PublicSetupsInput } from "../nitrous/public-events";
 import { validNitrousTelegramEvent } from "../src/lib/nitrous-telegram";
 import { NITROUS_CONFIG, NITROUS_FAST_CONFIG, NITROUS_SWEEP_CONFIG, configFor } from "../nitrous/config";
-import { fastCandidateEligible, setupAllowedForAccount, mergeNitrousSetups, triggerConfirmed } from "../nitrous/logic";
+import { referenceAllowsEntry, fastCandidateEligible, setupAllowedForAccount, mergeNitrousSetups, triggerConfirmed } from "../nitrous/logic";
+import { accountVisitId, baselineCandidateEligible } from "../nitrous/candidate-selection";
+import { buildSnapshot } from "../rapid/engine/snapshot";
 import { NITROUS_CONSENT_VERSION, NITROUS_FAST_CONSENT_VERSION } from "../src/lib/nitrous/policy";
 
 const NOW=Date.UTC(2026,10,25,23,0,0);
@@ -184,6 +186,35 @@ test("fast plans are Nitrous-only and require consent without changing baseline 
   assert.equal(configFor("nitrous",true).risk.sessionLossCeilingPct,15);
   assert.equal(configFor("nitrous",true).target.minNetRewardRisk,NITROUS_CONFIG.target.minNetRewardRisk);
 });
+test("a higher-ranked short cannot suppress an authorized long in aligned hourly and 15-minute structure", () => {
+  const rising = (ms: number) => Array.from({ length: 80 }, (_, i) => {
+    const c = 4200 + i * .2 + 4 * Math.sin(i * Math.PI / 4);
+    return { t: NOW - (80 - i) * ms, l: c - .5, h: c + .5, o: c, c };
+  });
+  const buy = plan({setupId:"eligible-buy",configVersion:NITROUS_CONFIG.configVersion});
+  const sell = plan({setupId:"high-ranked-sell",side:"sell",timeframe:"M15",configVersion:NITROUS_CONFIG.configVersion});
+  const input = {asOf:NOW,cfg:NITROUS_CONFIG,tick:.01,contractSize:null,minStopDistance:null,m1:[],quote:null,
+    higher:{H1:rising(60*MINUTE),M15:rising(15*MINUTE)},candidateBuilder:()=>({setups:[buy,sell],rejections:[]})};
+  const generic = buildSnapshot(input);
+  assert.equal(generic.regimes.H1,"up");
+  assert.equal(generic.regimes.M15,"up");
+  assert.deepEqual(generic.scenarios.map(s=>s.setupId),["high-ranked-sell"]);
+  assert.deepEqual(buildSnapshot({...input,candidateFilter:baselineCandidateEligible}).scenarios.map(s=>s.setupId),["eligible-buy"]);
+});
+test("one level can retain a distinct confirmed fast entry while the baseline entry still waits", () => {
+  const strict = plan({configVersion:NITROUS_CONFIG.configVersion});
+  const fast = plan({setupId:"nitrous:fast",configVersion:NITROUS_FAST_CONFIG.configVersion,entryBandHigh:4202});
+  const candle = { t: NOW-300_000, o:4201.1, l:4201.05, h:4202, c:4201.9 };
+  assert.equal(triggerConfirmed(strict,[candle],NOW),false);
+  assert.equal(triggerConfirmed(fast,[candle],NOW),true);
+  assert.deepEqual(mergeNitrousSetups([strict],[fast]),[strict,fast]);
+  assert.equal(accountVisitId("one-account",strict,NOW),"one-account|swing-support|1|buy|2026-11-25");
+  assert.equal(accountVisitId("one-account",strict,NOW),accountVisitId("one-account",fast,NOW));
+  assert.deepEqual(mergeNitrousSetups([strict],[{...fast,zoneVersion:strict.zoneVersion+1}]),[strict],
+    "conflicting zone versions cannot reserve the same economic level under two different keys");
+  assert.equal(setupAllowedForAccount(fast,"nitrous",NITROUS_CONSENT_VERSION),false);
+  assert.equal(setupAllowedForAccount(fast,"nitrous",NITROUS_FAST_CONSENT_VERSION),true);
+});
 test("range reaction requires a completed rejection candle", () => {
   const s=plan({family:"range_reaction",configVersion:NITROUS_FAST_CONFIG.configVersion});
   const bars=[{t:NOW-300_000,o:4200.1,l:4199.8,h:4202,c:4201.8}];
@@ -211,13 +242,41 @@ test("sweep lifecycle freezes and copies exact public reclaim evidence across re
   assert.ok(first.events.every(validNitrousTelegramEvent));
   const changed = sweepPlan({ sweepEvidence: { ...original.sweepEvidence!, candleClose: 4200.6 } });
   let observedClose = 0;
-  const next = advancePublicSetups(input({ prior: JSON.parse(JSON.stringify(first.updatedSetups)), current: [changed], referencePrice: 4200.5,
+  const conflict = advancePublicSetups(input({ prior: first.updatedSetups, current: [changed], referencePrice: 4200.5, triggerReady: () => true }));
+  assert.equal(conflict.updatedSetups[0].state, "invalidated", "a revised confirmation candle cannot trigger the earlier frozen offer");
+  const next = advancePublicSetups(input({ prior: JSON.parse(JSON.stringify(first.updatedSetups)), current: [withPrivateField], referencePrice: 4200.5,
     triggerReady: frozen => { observedClose = frozen.sweepEvidence!.candleClose; frozen.sweepEvidence!.candleClose = 9999; return true; } }));
   assert.equal(observedClose, 4200.5);
   assert.equal(next.updatedSetups[0].state, "triggered");
   assert.deepEqual(next.updatedSetups[0].sweepEvidence, original.sweepEvidence);
   assert.equal(next.events[0].family, "sweep_reclaim");
   assert.equal(original.sweepEvidence!.candleClose, 4200.5);
+});
+
+test("a frozen sweep survives a temporary price excursion, re-enters only its original band, and expires on schedule", () => {
+  const s = sweepPlan();
+  const reference = s.entryBandHigh + 1;
+  const check = (over: Partial<PublicSetupsInput>) => advancePublicSetups(input({ current: [], priceWaits: [s],
+    referencePrice: reference, triggerReady: () => true, ...over }));
+  assert.deepEqual(check({}).updatedSetups, [], "waiting evidence alone never publishes a new setup");
+  const first = check({ current: [s], referencePrice: s.refEntry });
+  assert.equal(first.updatedSetups[0].state, "triggered");
+  const outside = check({ prior: first.updatedSetups, now: NOW+1000 });
+  assert.deepEqual(outside.events, []);
+  assert.equal(outside.updatedSetups[0].state, "triggered");
+  assert.equal(outside.updatedSetups[0].expiresAt, s.expiresAt);
+  assert.equal(referenceAllowsEntry(s, reference), false);
+  const back = check({ prior: JSON.parse(JSON.stringify(outside.updatedSetups)), current: [s], referencePrice: s.refEntry, now: NOW+2000 });
+  assert.deepEqual(back.events, [], "a return to the band does not send another setup or trigger alert");
+  assert.equal(referenceAllowsEntry(back.updatedSetups[0], s.refEntry), true);
+  assert.equal(check({ prior: outside.updatedSetups, priceWaits: [] }).updatedSetups[0].state, "invalidated");
+  assert.equal(check({ prior: outside.updatedSetups, priceWaits: [{ ...s, target: s.target+1 }] }).updatedSetups[0].state, "invalidated");
+  assert.equal(check({ prior: outside.updatedSetups, priceWaits: [{ ...s, zoneVersion: 2 }] }).updatedSetups[0].state, "invalidated");
+  assert.equal(check({ prior: outside.updatedSetups, referencePrice: s.invalidation }).updatedSetups[0].state, "invalidated");
+  assert.equal(check({ prior: outside.updatedSetups, now: s.expiresAt }).updatedSetups[0].state, "expired");
+  const hit = check({ prior: outside.updatedSetups, now: NOW+MINUTE, bars: [bar(NOW+MINUTE, s.target)] });
+  assert.equal(hit.events[0].kind, "target_observed", "reference outcomes remain observable independently of entry eligibility");
+  assert.equal(check({ prior: hit.updatedSetups, current: [s], referencePrice: s.refEntry }).updatedSetups[0].state, "consumed");
 });
 
 test("sweep lifecycle rejects missing, future or unreclaimed public evidence", () => {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { Bar, Side, Zone } from "../rapid/core/types";
+import type { Bar, Setup, Side, Zone } from "../rapid/core/types";
 import { DEFAULT_CONFIG } from "../rapid/config/defaults";
 import { TF_MS } from "../rapid/market/bars";
 import { findPivots } from "../rapid/engine/structure";
@@ -186,4 +186,19 @@ test("the snapshot hook runs before candidate filtering and generic Rapid never 
   assert.ok(blocked.rejections.every(r => r.family === "sweep_reclaim"), "a dedicated sweep snapshot must not report other-family failures");
   buildSnapshot({ ...base, cfg: NITROUS_SWEEP_CONFIG, candidateBuilder: buildSweepReclaim,
     candidateFilter: () => true, candidateRejection: () => { throw new Error("accepted candidates must not invoke rejection diagnostics"); } });
+});
+
+test("sweep recheck emits price-only waits while enforcing invalidation, expiry and target room", () => {
+  for (const side of ["buy", "sell"] as const) {
+    const ctx = fixture(side);
+    const plan = buildSweepReclaim(ctx).setups[0];
+    const price = side === "buy" ? plan.entryBandHigh+1 : plan.entryBandLow-1;
+    const waiting: Setup[] = [];
+    const scan = (extra: Partial<EngineContext>) => buildSweepReclaim({ ...ctx, refPrice: price, ...extra }, s => waiting.push(s));
+    assert.equal(scan({}).setups.length, 0);
+    assert.deepEqual(waiting, [plan]);
+    scan({refPrice:plan.invalidation}); scan({refPrice:plan.target}); scan({asOf:plan.expiresAt});
+    scan({ spread: 5 });
+    assert.equal(waiting.length, 1);
+  }
 });

@@ -4,11 +4,19 @@ import { TF_MS } from "../rapid/market/bars";
 import { aggressiveEvidenceSane, aggressiveRegimeEligible, aggressiveTriggerConfirmed } from "./aggressive-patterns";
 import { isAggressiveSetup, isFastSetup, isSweepSetup } from "./config";
 import { setupAuthorized } from "../src/lib/nitrous/policy";
+import { baselineCandidateEligible, baselineCoversFast } from "./candidate-selection";
 
 export const MAX_REFERENCE_AGE_MS = 120_000;
 export function referenceFresh(bars: Bar[], now: number): boolean {
   const last = bars[bars.length - 1];
   return Boolean(last && last.t + 60_000 <= now && now - last.t - 60_000 <= MAX_REFERENCE_AGE_MS);
+}
+
+/** Sweep and aggressive entries require the latest reference close as well as the broker quote in band. */
+export function referenceAllowsEntry(s: Setup, price: number | undefined): boolean {
+  if (!isSweepSetup(s) && !isAggressiveSetup(s)) return true;
+  return price !== undefined && Number.isFinite(price) && price >= s.entryBandLow && price <= s.entryBandHigh
+    && (s.side === "buy" ? price > s.invalidation && price < s.target : price < s.invalidation && price > s.target);
 }
 
 /** A broker reservation can outlive the market setup while account checks are in flight. */
@@ -29,11 +37,7 @@ export function opportunityId(setup: Setup): string {
 
 /** Only strategies explicitly included in this first release can become executable. */
 export function supportedSetups(snapshot: MarketSnapshot): Setup[] {
-  return snapshot.scenarios.filter((s) => {
-    if (s.family !== "trend_pullback" && s.family !== "break_retest") return false;
-    const direction = s.side === "buy" ? "up" : "down";
-    return snapshot.regimes.H1 === direction && snapshot.regimes.M15 === direction;
-  }).map((s) => ({ ...s, setupId: opportunityId(s), conditionsPending: [
+  return snapshot.scenarios.filter(s => baselineCandidateEligible(s, snapshot.regimes)).map((s) => ({ ...s, setupId: opportunityId(s), conditionsPending: [
     ...(s.family === "trend_pullback" ? ["A completed entry candle rejects the pullback zone."] : []),
     "Broker price returns inside the entry zone with affordable size, spread and margin.",
   ] }));
@@ -96,9 +100,7 @@ export function aggressiveSetups(snapshot: MarketSnapshot): Setup[] {
 }
 
 export function mergeNitrousSetups(baseline: Setup[], fast: Setup[], sweeps: Setup[] = [], aggressive: Setup[] = []): Setup[] {
-  const key = (s: Setup) => `${s.parentId}|${s.side}`;
-  const keys = new Set(baseline.map(key));
-  const existing = [...baseline, ...fast.filter(s => !keys.has(key(s)))];
+  const existing = [...baseline, ...fast.filter(s => !baseline.some(b => baselineCoversFast(b, s)))];
   const ids = new Set(existing.map(s => s.setupId));
   // Keep earlier authorized plans available to v1/v2 accounts. A separately confirmed sweep
   // is a capability alternative; the unchanged account + parent + side + day intent key
